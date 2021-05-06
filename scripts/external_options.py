@@ -9,7 +9,9 @@ class ConfigICM:
     def __init__(self,Tf,configFile='config_default.yaml',D={}):
         if not D:
             arch=open(configFile, 'r')
-            D = yaml.load(arch,Loader=yaml.FullLoader)
+            Data = yaml.load(arch,Loader=yaml.FullLoader)
+            D=Data['D']
+            
 
         # parámetros por default
         self.N=D['N']  #cantidad de iteraciones de ICM
@@ -29,7 +31,7 @@ class ConfigICM:
         self.cte_odom=D['cte_odom']  #S=diag([cte_odom,cte_odom,cte_odom]) matriz de peso de los datos odométricos
         self.cota=D['cota']  #cantidad de veces que hay q ver un arbol para q se considere un arbol
         self.dist_thr=D['dist_thr']  #distancia máxima para que dos obs sean consideradas del mismo objeto
-        self.dist_thr_obs=D['dist_thr_obs']1  #distancia máxima para que dos obs sean consideradas del mismo objeto en el proceso de filtrado de las observaciones
+        self.dist_thr_obs=D['dist_thr_obs']  #distancia máxima para que dos obs sean consideradas del mismo objeto en el proceso de filtrado de las observaciones
         self.rango_laser_max=D['rango_laser_max']  #alcance máximo del laser
         self.radio=D['radio'] #radio promedio de los árboles
 
@@ -69,10 +71,7 @@ def g(xt,ut, config):
     gg=xt+config.deltat*np.matmul(S,ut).reshape((3,1))
     return gg
 
-
-
-
-def h(xt,zt,config):
+def h(xt,zt,ICM):
     """
     Modelo de las observaciones
     =============================
@@ -89,14 +88,13 @@ def h(xt,zt,config):
      Poner la forma de la función que esta en el paper.
     """
 
-    global yopt
-    y=yopt
+    y=ICM.yopt
     alfa=zt[:,1]+xt[2]-np.pi/2.0
     zc=zt[:,0]*np.cos(alfa)
     zs=zt[:,0]*np.sin(alfa)
     hh=np.concatenate((xt[0]+zc,xt[1]+zs)).reshape((len(alfa),2),order='F')-y
     # Calcula la norma :math:`hh^TQhh`
-    hhh=np.matmul(hh,config.Q)
+    hhh=np.matmul(hh,ICM.config.Q)
     hh=np.sum(hhh*hh)
     return hh
 

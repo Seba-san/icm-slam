@@ -6,7 +6,7 @@ from scipy.signal import medfilt
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.optimize import fmin
 import matplotlib.pyplot as plt
-import copy.deepcopy as copy
+from copy import deepcopy as copy
 from external_options import *
 #import sys
 
@@ -66,8 +66,8 @@ def filtrar_y(y,cant_obs_i,Lact,config):
             c[c>=i]=c[c>=i]-1 #a todos los de indice mayor a i le resto 1... ya que el indice i ya no existe
 
     Lact=max(c)+1 #actualizo la cantidad de arboles observados luego del filtro
-    yy=np.zeros((2,L)) #contendrá la posición media ponderada de acuerdo a cant_obs_i entre todos los arboles unificados por estar cercanos 
-    cant_obs=np.zeros(L)  #reemplazará a cant_obs_i
+    yy=np.zeros((2,config.L)) #contendrá la posición media ponderada de acuerdo a cant_obs_i entre todos los arboles unificados por estar cercanos 
+    cant_obs=np.zeros(config.L)  #reemplazará a cant_obs_i
     for i in range(Lact):
         cant_obs[i]=np.sum(cant_obs_i[c==i])
         yy[:,i]=np.sum(y[:,c==i]*np.matlib.repmat(cant_obs_i[c==i],2,1),axis=1)/cant_obs[i] #calculo el centro de cada nuevo cluster
@@ -128,7 +128,7 @@ def actualizar_mapa(mapa,yy,obs,Lact,config):
 
     return mapa,cant_obs_i,c,Lact
 
-def filtrar_z(z):
+def filtrar_z(z,config):
     """
     Elimina observaciones aisladas o de rango máximo.
     Salida **zz** : es una matriz de 2 columnas que alista una abajo de otra las distancias y los angulos en los cuales hay una observación "positiva".
@@ -205,7 +205,7 @@ class ICM_method:
         self.u_act_opt=uu[:,1]
         self.x_pos_opt=xx_pos.reshape((3,1))
         self.odo_opt=odometria
-        x=fmin(self.fun_xn,(x_ant_opt+x_pos_opt)/2.0,xtol=0.001,disp=0)
+        x=fmin(self.fun_xn,(self.x_ant_opt+self.x_pos_opt)/2.0,xtol=0.001,disp=0)
         return x
 
     def minimizar_x(self,zz,yy,xx_ant,uu_ant,odometria):
@@ -230,7 +230,7 @@ class ICM_method:
         self.u_ant_opt=uu_ant
         self.x_ant_opt=xx_ant.reshape((3,1))
         self.odo_opt=odometria
-        x=fmin(self.fun_x,g(x_ant_opt,u_ant_opt,self.config),xtol=0.001,disp=0)
+        x=fmin(self.fun_x,g(self.x_ant_opt,self.u_ant_opt,self.config),xtol=0.001,disp=0)
         return x
 
     def fun_xn(self,x):
@@ -249,7 +249,7 @@ class ICM_method:
         ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))-np.matmul(Rotador,x_pos[0:2]-x[0:2])
         ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
         ooo[2]=entrepi(ooo[2])
-        f=f+np.matmul(np.matmul(gg.T,R),gg)+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        f=f+np.matmul(np.matmul(gg.T,self.config.R),gg)+self.config.cte_odom*np.matmul(ooo.T,ooo)
         return f
 
     def fun_x(self,x):
@@ -262,13 +262,13 @@ class ICM_method:
         odo=self.odo_opt
         gg=x.reshape((3,1))-g(x_ant,u_ant,self.config)
         gg[2]=entrepi(gg[2])
-        hh=h(x,z)
+        hh=h(x,z,self)
         Rotador=Rota(x_ant[2][0])
         ooo=np.zeros((3,1))
         ooo[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))-np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
         ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
         ooo[2]=entrepi(ooo[2])
-        f=np.matmul(np.matmul(gg.T,R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        f=np.matmul(np.matmul(gg.T,self.config.R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
         return f
 
 
@@ -340,18 +340,18 @@ if __name__=='__main__':
     x0=np.zeros((3,1))  #guarda la pose actual (inicial en esta linea) del DDMR
     y=np.zeros((2,config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
     cant_obs_i=np.zeros(config.L)  #$1 guarda la cantidad de veces que se observó el i-ésimo árbol
-    x=np.zeros((3,Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
+    x=np.zeros((3,config.Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
     
     #Iteracion inicial ICM
     xt=copy(x0)#+0.0 #pose inicial. $1 Forma de copiar. 
-    z=filtrar_z(zz[:,0])  #filtro la primer observacion [dist ang x y] x #obs
+    z=filtrar_z(zz[:,0],config)  #filtro la primer observacion [dist ang x y] x #obs
     zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
     y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],0,config)
     
     #BUCLE TEMPORAL
     for t in range(1,config.Tf):
         xtc=g(xt,u[:,t-1],config)  #actualizo cinemáticamente la pose
-        z=filtrar_z(zz[:,t])  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
+        z=filtrar_z(zz[:,t],config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
         if z.shape[0]==0:
             xt=xtc
             x[:,t]=xt.T
@@ -364,25 +364,25 @@ if __name__=='__main__':
         x[:,t]=xt
     
     #filtro ubicaciones estimadas
-    [y,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact)
+    [y,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact,config)
     yy=y[:,:Lact]
     
     #CALCULO CAMBIOS
     mapa_viejo=copy(yy)
-    cambios_minimos=np.zeros(N)
-    cambios_maximos=np.zeros(N)
-    cambios_medios=np.zeros(N)
+    cambios_minimos=np.zeros(config.N)
+    cambios_maximos=np.zeros(config.N)
+    cambios_medios=np.zeros(config.N)
     
     graficar(x,yy)#gráficos
     
     
     #Iteraciones ICM
-    for iteracionICM in range(N):
+    for iteracionICM in range(config.N):
         print('iteración ICM : ',iteracionICM+1)
         xt=copy(x0)#+0.0 #pose inicial
-        y=np.zeros((2,L)) #guarda la posicion de los a lo sumo L arboles del entorno
-        cant_obs_i=np.zeros(L)  #guarda la cantidad de veces que se observó el i-ésimo árbol
-        z=filtrar_z(zz[:,0])  #filtro la primer observacion [dist ang x y] x #obs
+        y=np.zeros((2,config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
+        cant_obs_i=np.zeros(config.L)  #guarda la cantidad de veces que se observó el i-ésimo árbol
+        z=filtrar_z(zz[:,0],config)  #filtro la primer observacion [dist ang x y] x #obs
         if z.shape[0]==0:
             continue #si no hay observaciones pasar al siguiente periodo de muestreo
         
@@ -391,7 +391,7 @@ if __name__=='__main__':
     
         #BUCLE TEMPORAL
         for t in range(1,config.Tf):
-            z=filtrar_z(zz[:,t])  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
+            z=filtrar_z(zz[:,t],config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
             if z.shape[0]==0:
                 xt=(xt.reshape(3)+x[:,t+1])/2.0
                 x[:,t]=xt
@@ -406,7 +406,7 @@ if __name__=='__main__':
             x[:,t]=xt
         
         #filtro ubicaciones estimadas
-        [yy,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact)
+        [yy,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact,config)
         yy=yy[:,:Lact]
         
         #CALCULO DE CAMBIOS
@@ -414,7 +414,7 @@ if __name__=='__main__':
         cambios_minimos[iteracionICM]=cambio_minimo
         cambios_maximos[iteracionICM]=cambio_maximo
         cambios_medios[iteracionICM]=cambio_medio
-        mapa_viejo=yy+0.0
+        mapa_viejo=copy(yy)#+0.0
     
         graficar(x,yy,iteracionICM)#gráficos
 
