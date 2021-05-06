@@ -74,9 +74,9 @@ def filtrar_y(y,cant_obs_i,Lact,config):
 
     return yy,cant_obs,Lact
 
-def actualizar_mapa(mapa,yy,obs,Lact):
+def actualizar_mapa(mapa,yy,obs,Lact,config):
     """
-    mapa,cant_obs_i,c,Lact=actualizar_mapa(mapa,yy,obs,Lact)
+    mapa,cant_obs_i,c,Lact=actualizar_mapa(mapa,yy,obs,Lact,config)
 
     Mapa es la estimación de los árboles que se tiene hasta el momento dentro de la iteracion ICM.
     **yy** es la estimación de los árboles que se usará para realizar el etiquetado de las obs nuevas. 
@@ -90,6 +90,7 @@ def actualizar_mapa(mapa,yy,obs,Lact):
      - yy: Es el mismo mapa anterior solo que contiene los árboles observados.
      - obs: Lista de observaciones, :math:`z_i=\{z_{t,i}:i=1,\cdots,n_t\}`, :math:`z_{t,i}=[ z_{t,i,d}, z_{t,i,\theta} ]^T`
      - [int] Lact: cantidad de árboles hasta el momento
+     - config: parámetros de configuración dado por el método ConfigICM
     Salidas:
      - mapa:
      - cant_obs_i:
@@ -172,86 +173,103 @@ def tras_rot_z(x,z):
     z[:,2:4]=np.matmul(z[:,2:4],R)+np.matlib.repmat(x[0:2].T,z.shape[0],1)
     return z
 
-def minimizar_xn(zz,yy,xx_ant,xx_pos,uu,odometria):
+class ICM_method:
     """
-    yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra, repitiendo observaciones repetidas e ignorando ubicaciones no observadas
-    zz contiene las observaciones realizadas una abajo de la otra. La primer columna contiene distancias y la segunda ángulos relativos al laser del robot
-    Ver `fmin source <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin.html?highlight=fmin#scipy.optimize.fmin>`_
+    Esta clase sirve para computar los mínimos a las funciones fun_x y fun_xn. 
+    Como es necesario pasar argumentos entre la función a minimizar y el minimizador, se opta por
+    utilizar esta estrategia frente a la de declarar variables globales. 
     """
+    def __init__(self,config):
+        self.config=copy(config)
 
-    # setea los valores globales de estas variables.
-    global zopt,yopt,u_ant_opt,x_ant_opt,u_act_opt,x_pos_opt,odo_opt
-    zopt=zz
-    yopt=yy
-    u_ant_opt=uu[:,0]
-    x_ant_opt=xx_ant.reshape((3,1))
-    u_act_opt=uu[:,1]
-    x_pos_opt=xx_pos.reshape((3,1))
-    odo_opt=odometria
-    x=fmin(fun_xn,(x_ant_opt+x_pos_opt)/2.0,xtol=0.001,disp=0)
-    return x
+    def minimizar_xn(self,zz,yy,xx_ant,xx_pos,uu,odometria):
+        """
+        yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra, repitiendo observaciones repetidas e ignorando ubicaciones no observadas
+        zz contiene las observaciones realizadas una abajo de la otra. La primer columna contiene distancias y la segunda ángulos relativos al laser del robot
+        Ver `fmin source <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin.html?highlight=fmin#scipy.optimize.fmin>`_
+        
+        Entradas:
+         - zz: Mediciones
+         - yy: Mapa
+         - xx_ant: Poses anteriores
+         - uu_ant: Señales de control
+         - odometria: Datos de odometria
+        Salida:
+         - x: el mínimo x que minimiza la función fun_xn
 
-def minimizar_x(zz,yy,xx_ant,uu_ant,odometria):
-    """
-    yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra, repitiendo observaciones repetidas e ignorando ubicaciones no observadas
-    zz contiene las observaciones realizadas una abajo de la otra. La primer columna contiene distancias y la segunda ángulos relativos al laser del robot
-    Ver
-    `fmin source <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin.html?highlight=fmin#scipy.optimize.fmin>`_
-    """
-    # setea los valores globales de estas variables para pasarselas como
-    # argumento a las funciones fun_x y fun_xn
-    global zopt,yopt,u_ant_opt,x_ant_opt,odo_opt
-    zopt=zz
-    yopt=yy
-    u_ant_opt=uu_ant
-    x_ant_opt=xx_ant.reshape((3,1))
-    odo_opt=odometria
-    x=fmin(fun_x,g(x_ant_opt,u_ant_opt,config),xtol=0.001,disp=0)
-    return x
+        """
+        self.zopt=zz
+        self.yopt=yy
+        self.u_ant_opt=uu[:,0]
+        self.x_ant_opt=xx_ant.reshape((3,1))
+        self.u_act_opt=uu[:,1]
+        self.x_pos_opt=xx_pos.reshape((3,1))
+        self.odo_opt=odometria
+        x=fmin(self.fun_xn,(x_ant_opt+x_pos_opt)/2.0,xtol=0.001,disp=0)
+        return x
 
+    def minimizar_x(self,zz,yy,xx_ant,uu_ant,odometria):
+        """
+        x=minimizar_x(self,zz,yy,xx_ant,uu_ant,odometria)
+        yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra, repitiendo observaciones repetidas e ignorando ubicaciones no observadas
+        zz contiene las observaciones realizadas una abajo de la otra. La primer columna contiene distancias y la segunda ángulos relativos al laser del robot
+        Ver
+        `fmin source <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.fmin.html?highlight=fmin#scipy.optimize.fmin>`_
+        Entradas:
+         - zz: Mediciones
+         - yy: Mapa
+         - xx_ant: Poses anteriores
+         - uu_ant: Señales de control
+         - odometria: Datos de odometria
+        Salida:
+         - x: el mínimo x que minimiza la función fun_x 
 
-def fun_xn(x):
-    """
-    Función a minimizar 
-    """
+        """
+        self.zopt=zz
+        self.yopt=yy
+        self.u_ant_opt=uu_ant
+        self.x_ant_opt=xx_ant.reshape((3,1))
+        self.odo_opt=odometria
+        x=fmin(self.fun_x,g(x_ant_opt,u_ant_opt,self.config),xtol=0.001,disp=0)
+        return x
 
-    global zopt,x_pos_opt,u_act_opt,odo_opt
-    z=zopt
-    x_pos=x_pos_opt
-    u_act=u_act_opt
-    odo=odo_opt
-    f=fun_x(x)
-    x=x.reshape((3,1))
-    gg=g(x,u_act,config)-x_pos
-    gg[2]=entrepi(gg[2])
-    Rotador=Rota(x[2][0])
-    ooo=np.zeros((3,1))
-    ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))-np.matmul(Rotador,x_pos[0:2]-x[0:2])
-    ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
-    ooo[2]=entrepi(ooo[2])
-    f=f+np.matmul(np.matmul(gg.T,R),gg)+cte_odom*np.matmul(ooo.T,ooo)
-    return f
+    def fun_xn(self,x):
+        """
+        Función a minimizar 
+        """
+        x_pos=self.x_pos_opt
+        u_act=self.u_act_opt
+        odo=self.odo_opt
+        f=self.fun_x(x)
+        x=x.reshape((3,1))
+        gg=g(x,u_act,self.config)-x_pos
+        gg[2]=entrepi(gg[2])
+        Rotador=Rota(x[2][0])
+        ooo=np.zeros((3,1))
+        ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))-np.matmul(Rotador,x_pos[0:2]-x[0:2])
+        ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
+        ooo[2]=entrepi(ooo[2])
+        f=f+np.matmul(np.matmul(gg.T,R),gg)+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        return f
 
-
-def fun_x(x):
-    """
-    Función a minimizar 
-    """
-    global zopt,x_ant_opt,u_ant_opt,odo_opt
-    z=zopt
-    x_ant=x_ant_opt
-    u_ant=u_ant_opt
-    odo=odo_opt
-    gg=x.reshape((3,1))-g(x_ant,u_ant,config)
-    gg[2]=entrepi(gg[2])
-    hh=h(x,z)
-    Rotador=Rota(x_ant[2][0])
-    ooo=np.zeros((3,1))
-    ooo[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))-np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
-    ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
-    ooo[2]=entrepi(ooo[2])
-    f=np.matmul(np.matmul(gg.T,R),gg)+hh+cte_odom*np.matmul(ooo.T,ooo)
-    return f
+    def fun_x(self,x):
+        """
+        Función a minimizar 
+        """
+        z=self.zopt
+        x_ant=self.x_ant_opt
+        u_ant=self.u_ant_opt
+        odo=self.odo_opt
+        gg=x.reshape((3,1))-g(x_ant,u_ant,self.config)
+        gg[2]=entrepi(gg[2])
+        hh=h(x,z)
+        Rotador=Rota(x_ant[2][0])
+        ooo=np.zeros((3,1))
+        ooo[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))-np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
+        ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
+        ooo[2]=entrepi(ooo[2])
+        f=np.matmul(np.matmul(gg.T,R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        return f
 
 
 def Rota(theta):
@@ -301,12 +319,11 @@ if __name__=='__main__':
     print(z.shape)
     print(u.shape)
 
-    #defaultConfig=ConfigICM()
-    config=ConfigICM()
-    
+    config=ConfigICM(z.shape[1])# Carga toda la configuración inicial
+    ICM=ICM_method(config) # Crea el objeto de los minimizadores
     
     #preparo las observaciones
-    zz=np.minimum(z+radio,z*0.0+rango_laser_max)  #guarda las observaciones laser... si la distancia de obs es mayor a rango_laser_max se setea directamente en rango_laser_max
+    zz=np.minimum(z+config.radio,z*0.0+config.rango_laser_max)  #guarda las observaciones laser... si la distancia de obs es mayor a rango_laser_max se setea directamente en rango_laser_max
 
 
     ##################### ITERACION ICM 0 #####################
@@ -329,7 +346,7 @@ if __name__=='__main__':
     xt=copy(x0)#+0.0 #pose inicial. $1 Forma de copiar. 
     z=filtrar_z(zz[:,0])  #filtro la primer observacion [dist ang x y] x #obs
     zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
-    y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],0)
+    y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],0,config)
     
     #BUCLE TEMPORAL
     for t in range(1,config.Tf):
@@ -341,8 +358,8 @@ if __name__=='__main__':
             continue   #si no hay observaciones pasar al siguiente periodo de muestreo
         
         zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
-        y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],Lact)  #actualizo (o creo) ubicación de arboles observados
-        xt=minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
+        y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
+        xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
     #     xt=xtc+0.0 #actualiza con el modelo cinemático para independizarse del optimizador
         x[:,t]=xt
     
@@ -370,7 +387,7 @@ if __name__=='__main__':
             continue #si no hay observaciones pasar al siguiente periodo de muestreo
         
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
-        y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact)  #actualizo (o creo) ubicación de arboles observados
+        y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
     
         #BUCLE TEMPORAL
         for t in range(1,config.Tf):
@@ -381,11 +398,11 @@ if __name__=='__main__':
                 continue #si no hay observaciones pasar al siguiente periodo de muestreo
             
             zt=tras_rot_z(x[:,t],z)  #rota y traslada las observaciones de acuerdo a la pose actual
-            y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact)  #actualizo (o creo) ubicación de arboles observados
+            y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
             if t+1<config.Tf:
-                xt=minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
+                xt=ICM.minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
             else:
-                xt=minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
+                xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
             x[:,t]=xt
         
         #filtro ubicaciones estimadas

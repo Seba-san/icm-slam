@@ -1,26 +1,37 @@
 import numpy as np
-
+import yaml
 
 
 class ConfigICM:
     """
     Núcleo de todos los parámetros de configuración y constantes. 
     """
-    def __init__(self,D={}):
+    def __init__(self,Tf,configFile='config_default.yaml',D={}):
         if not D:
-            # parámetros por default
-            self.N=5  #cantidad de iteraciones de ICM
-            self.deltat=0.1  #periodo de muestreo
-            self.Tf=z.shape[1]  #cantidad total de periodos de muestreo
-            self.L=1000  #cota superior de la cantidad de objetos
-            self.Q=np.eye(2)  #matriz de covarianza de las observaciones
-            self.R=np.eye(3) #matriz de covarianza del motion model
-            self.cte_odom=1.0  #S=diag([cte_odom,cte_odom,cte_odom]) matriz de peso de los datos odométricos
-            self.cota=300.0  #cantidad de veces que hay q ver un arbol para q se considere un arbol
-            self.dist_thr=1.0  #distancia máxima para que dos obs sean consideradas del mismo objeto
-            self.dist_thr_obs=1  #distancia máxima para que dos obs sean consideradas del mismo objeto en el proceso de filtrado de las observaciones
-            self.rango_laser_max=10.0  #alcance máximo del laser
-            self.radio=0.137 #radio promedio de los árboles
+            arch=open(configFile, 'r')
+            D = yaml.load(arch,Loader=yaml.FullLoader)
+
+        # parámetros por default
+        self.N=D['N']  #cantidad de iteraciones de ICM
+        self.deltat=D['deltat']  #periodo de muestreo
+        self.Tf=Tf  #cantidad total de periodos de muestreo
+        self.L=D['L']  #cota superior de la cantidad de objetos
+        
+        self.Q=np.eye(2)#matriz de covarianza de las observaciones
+        self.Q[0,0]=D['Q'][0] 
+        self.Q[1,1]=D['Q'][1] 
+        
+        self.R=np.eye(3) #matriz de covarianza del motion model
+        self.R[0,0]=D['R'][0]
+        self.R[1,1]=D['R'][1]
+        self.R[2,2]=D['R'][2]
+
+        self.cte_odom=D['cte_odom']  #S=diag([cte_odom,cte_odom,cte_odom]) matriz de peso de los datos odométricos
+        self.cota=D['cota']  #cantidad de veces que hay q ver un arbol para q se considere un arbol
+        self.dist_thr=D['dist_thr']  #distancia máxima para que dos obs sean consideradas del mismo objeto
+        self.dist_thr_obs=D['dist_thr_obs']1  #distancia máxima para que dos obs sean consideradas del mismo objeto en el proceso de filtrado de las observaciones
+        self.rango_laser_max=D['rango_laser_max']  #alcance máximo del laser
+        self.radio=D['radio'] #radio promedio de los árboles
 
 def entrepi(angulo):
     """
