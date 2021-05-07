@@ -17,7 +17,7 @@ class ConfigICM:
         self.N=D['N']  #cantidad de iteraciones de ICM
         self.deltat=D['deltat']  #periodo de muestreo
         self.Tf=Tf  #cantidad total de periodos de muestreo
-        self.L=D['L']  #cota superior de la cantidad de objetos
+        self.L=D['L']  #cota superior de la cantidad de objetos (max landmarks)
         
         self.Q=np.eye(2)#matriz de covarianza de las observaciones
         self.Q[0,0]=D['Q'][0] 
@@ -73,6 +73,8 @@ def g(xt,ut, config):
 
 def h(xt,zt,ICM):
     """
+    Función de potencial energético. 
+
     Modelo de las observaciones
     =============================
     Página 8/15 del paper.
@@ -83,7 +85,7 @@ def h(xt,zt,ICM):
      - config: Objeto que contiene todas las configuraciones
 
     Salida:
-     - :math:`x_{t+1}=[ x_{t+1,x}, x_{t+1,y}, x_{t+1,\theta}]^T`
+     -  Potencial.
 
      Poner la forma de la función que esta en el paper.
     """
