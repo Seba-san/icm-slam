@@ -24,7 +24,13 @@ import scipy.io as sio
 
 def filtrar_y(y,cant_obs_i,Lact,config):
     """
-    yy,cant_obs,Lact = filtrar_y(y,cant_obs_i,Lact,config)
+    [y,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact,config)
+    
+    Se filtra el mapa, eliminando landmarks poco observados y unificando
+    landmarks cercanos. 
+    
+    Parámetros
+    ----------
 
     Entrada:
      - y: Mapa de entrada
@@ -34,12 +40,11 @@ def filtrar_y(y,cant_obs_i,Lact,config):
      - config: Objeto que contiene todos los parámetros de configuración
 
     Salida:
-     - yy: mapa filtrado con los árbole más observados
+     - yy: mapa filtrado con los árboles más observados
      - cant_obs: Cantidad de observaciones luego de filtrar 
      - Lact: Cantidad de árboles vistos actualizado
 
 
-    limpio ubicaciones poco observadas y unifico arboles muy cercanos
     """
 
     cant_obs_i=cant_obs_i[0:Lact] #saco ceros innecesarios
@@ -77,6 +82,12 @@ def filtrar_y(y,cant_obs_i,Lact,config):
 def actualizar_mapa(mapa,yy,obs,Lact,config):
     """
     mapa,cant_obs_i,c,Lact=actualizar_mapa(mapa,yy,obs,Lact,config)
+    
+    Actualiza las variables relacionadas con la construcción del mapa. Como
+    argumentos de entrada son el mismo mapa y las observaciones (de una sola
+    medicion? o pueden ser varias observaciones?). 
+    Ver una forma de hacer una clase "Mapa" para hacer estas actualizaciones,
+    ya que hay mucha información dedundante. 
 
     Mapa es la estimación de los árboles que se tiene hasta el momento dentro de la iteracion ICM.
     **yy** es la estimación de los árboles que se usará para realizar el etiquetado de las obs nuevas. 
@@ -92,7 +103,7 @@ def actualizar_mapa(mapa,yy,obs,Lact,config):
      - [2 x Lact] Mapa: Es una matriz con las posiciones 2D de 'Lact' árboles.
      - yy: Es el mismo mapa anterior solo que contiene los árboles observados.
      - [(x,y) x Nobs] obs: Lista de observaciones en coordenadas cartecianas.
-       Nobs son la cantidad de observaciones filtradas (sin outliers).
+       Nobs son la cantidad de observaciones filtradas (sin outliers). 
      - [int] Lact: cantidad de árboles hasta el momento
      - config: parámetros de configuración dado por el método ConfigICM
     Salidas:
@@ -101,8 +112,9 @@ def actualizar_mapa(mapa,yy,obs,Lact,config):
        un árbol.
      - int c: Vector de etiquetas de cada landmark. Dice a que landmark
        corresponde cada medición.
-     - [int] Lact: cantidad de árboles actualizado
+     - [int] Lact: cantidad de árboles actualizado.
     """
+
     if Lact==0:#este bucle es solamente para t=0 de la iteración ICM 0
         c=fcluster(linkage(pdist(obs)),config.dist_thr)-1  #calculo clusters iniciales
         Lact=np.max(c)+1  #cantidad de arboles iniciales
@@ -120,7 +132,7 @@ def actualizar_mapa(mapa,yy,obs,Lact,config):
         ztt=obs[min_dist>config.dist_thr,:]#extraigo las obs nuevas que estan lejos de los árboles de yy
         if ztt.shape[0]>1:#si hay mas de una observacion de un arbol no mapeado aun
             cc=Lact+fcluster(linkage(pdist(ztt[:,2:4])),config.dist_thr)-1 #calculo clusters y le coloco una etiqueta nueva (a partir de Lact=max etiqueta+1)
-            c[c==-1]=cc#a todos los arboles con etiqueta -1 le asigno su nueva etiqueta
+            c[c==-1]=cc#a todos los árboles con etiqueta -1 le asigno su nueva etiqueta
 
         elif ztt.shape[0]==1:#si hay sólo una observacion de un arbol no mapeado aun
             c[c==-1]=Lact
@@ -129,7 +141,10 @@ def actualizar_mapa(mapa,yy,obs,Lact,config):
         #actualizo (o creo) ubicación de arboles observados
         for i in range(Lact):
             if len(c[c==i])>0:
-                mapa[:,i]=np.sum(zt[c==i,2:4],axis=0)/(cant_obs_i[i]+len(c[c==i]))+mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]+len(c[c==i]))
+                mapa[:,i]=np.sum(zt[c==i,2:4],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
+                        +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]\
+                        +len(c[c==i]))
+
                 cant_obs_i[i]=cant_obs_i[i]+len(c[c==i])
 
     return mapa,cant_obs_i,c,Lact
@@ -147,7 +162,7 @@ def filtrar_z(z,config):
      - config: parámetros de configuración
 
     Salidas:
-     - [float] L_vistos x4 zz: Salida filtrad , $1 revisar!!   [dist ang x y]
+     - float [L_vistos x 4] zz: Salida filtrada , $1 revisar!!   [dist ang x y]
     """
     z=medfilt(z)  #filtro de mediana con ventana 3 para borrar observaciones laser outliers
     zz=copy(z)#+0.0  # $1 copia para no sobreescribir
@@ -163,9 +178,9 @@ def filtrar_z(z,config):
       c[c==0]=100 #$1 ojo, esto depende del rango máximo
       c=np.amin(c,axis=0) #calculo la distancia al objeto más cercano de cada observacion
       nind=nind[c<=config.dist_thr] #elimino direcciones aisladas
-      # Hasta acá lo seguí.
       zz=np.concatenate((zz[nind],nind*np.pi/180.0)).reshape((len(nind),2),order='F') #ahora zz contiene las distancias y la direccion (en radianes) de las observaciones no aisladas
-      zzz=np.concatenate((zz[:,0],zz[:,0])).reshape((len(nind),2),order='F')*np.concatenate((np.cos(zz[:,1]),np.sin(zz[:,1]))).reshape((len(nind),2),order='F') #contiene la posicion relativa de las observaciones no aisladas
+      zzz=np.concatenate((zz[:,0],zz[:,0])).reshape((len(nind),2),order='F')\
+              *np.concatenate((np.cos(zz[:,1]),np.sin(zz[:,1]))).reshape((len(nind),2),order='F') #contiene la posicion relativa de las observaciones no aisladas
       zz=np.concatenate((zz,zzz),axis=1)
     else:
       zz=np.array([])
@@ -193,7 +208,7 @@ class ICM_method:
     """
     Esta clase sirve para computar los mínimos a las funciones fun_x y fun_xn. 
     Como es necesario pasar argumentos entre la función a minimizar y el minimizador, se opta por
-    utilizar esta estrategia frente a la de declarar variables globales. 
+    utilizar esta *clase* en vez de declarar variables globales. 
     """
     def __init__(self,config):
         self.config=copy(config)
@@ -201,20 +216,23 @@ class ICM_method:
     def minimizar_xn(self,zz,yy,xx_ant,xx_pos,uu,odometria):
         """
         xt=minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
+
+        Ec. (14) del paper.
         
         yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra, repitiendo observaciones repetidas e ignorando ubicaciones no observadas
         zz contiene las observaciones realizadas una abajo de la otra. La primer columna contiene distancias y la segunda ángulos relativos al laser del robot
          
          Entradas:
-         - [Tf x (distancia, ángulo) ] zz: Todas las mediciones sin outliers
-         - [(x,y) x Lact ] yy: Mapa con los landmarks vistos. 
+         - [distancia, ángulo] zz: Mediciones para un instante de
+         - [(x,y) x c ] yy: Mapa con los landmarks vistos en un instante de
+           tiempo. 
          - [x y \theta] xx_ant: Pose actual estimada con este minimizador.
-         - [x y \theta] xx_pos: Pose futura ? $1
+         - [x y \theta] xx_pos: Pose futura. 
          - [v \omega] uu: Señal de control del instante anterior
          - [x y \theta]  odometria: Estimación de la pose dado por la
-           odometria.
+           odometria en 2 instantes de tiempo.
         Salida:
-         - x: la pose que minimiza el funcional fun_x. 
+         - x: la pose que minimiza el funcional fun_x.
 
         """
         self.zopt=zz
@@ -231,45 +249,60 @@ class ICM_method:
         """
         Función a minimizar
         Entrada:
-         - x: 
+         - x: Pose
 
         Salida:
-         - f:
+         - f: Potencial energético debido al modelo cinemático y a la
+           odometría.
         """
         x_pos=self.x_pos_opt
         u_act=self.u_act_opt
         odo=self.odo_opt
+
         f=self.fun_x(x)
 
         x=x.reshape((3,1))
         gg=g(x,u_act,self.config)-x_pos
         gg[2]=entrepi(gg[2])
+
         Rotador=Rota(x[2][0])
         ooo=np.zeros((3,1))
+        # Calcula la diferencia entre los vectores desplazamiento. Entre la
+        # odometria y la pose x (de forma relativa, con respecto a la pose anterior)
+        # Ec. (16) del paper.
         ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))\
                 -np.matmul(Rotador,x_pos[0:2]-x[0:2])
+
         ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
         ooo[2]=entrepi(ooo[2])
-        f=f+np.matmul(np.matmul(gg.T,self.config.R),gg)\
-           +self.config.cte_odom*np.matmul(ooo.T,ooo)
+
+        f=np.matmul(np.matmul(gg.T,self.config.R),gg)\
+           +self.config.cte_odom*np.matmul(ooo.T,ooo)\
+           +f
         return f
 
     def minimizar_x(self,zz,yy,xx_ant,uu_ant,odometria):
         """
         x=minimizar_x(self,zz,yy,xx_ant,uu_ant,odometria)
+
+        Ec. (11) del paper. 
+
+        Agregar una descripción.
+
         yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra, repitiendo observaciones repetidas e ignorando ubicaciones no observadas
         zz contiene las observaciones realizadas una abajo de la otra. La primer columna contiene distancias y la segunda ángulos relativos al laser del robot
         
         xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
         
         Entradas:
-
-         - [Tf x (distancia, ángulo) ] zz: Todas las mediciones sin outliers
-         - [(x,y) x Lact ] yy: Mapa con los landmarks vistos. 
+         - [distancia, ángulo] zz: Mediciones para un instante de
+           tiempo, filtradas (sin outliers).
+         - [(x,y) x c ] yy: Mapa con los landmarks vistos en un instante de
+           tiempo.
          - [x y \theta] xx_ant: Pose anterior estimada con este minimizador.
          - [v \omega] uu_ant: Señal de control del instante anterior
          - [x y \theta]  odometria: Estimación de la pose dado por la
-           odometria.
+           odometria en 2 instantes de tiempo.
         Salida:
          - x: la pose que minimiza el funcional fun_x. 
 
@@ -284,12 +317,23 @@ class ICM_method:
 
     def fun_x(self,x):
         """
-        Función a minimizar
+        Argumento de la Ec. (11) del paper.
+
+        Función a minimizar que depende de:
+         - Odometria
+         - Estimacion de pose anterior
+         - Modelo cinemático de movimiento
+         - Modelo de las observaciones
+         - Observaciones en un instate dado
+        
+        Parámetros
+        -----------
+        
         Entrada:
-         - x: 
+         - x: posición.
 
         Salida:
-         - f:
+         - f: potencial energético.
 
         Escribir la operación que se realiza (que ec del paper?)$1
         """
@@ -298,17 +342,23 @@ class ICM_method:
         x_ant=self.x_ant_opt
         u_ant=self.u_ant_opt
         odo=self.odo_opt
-
+        # vector desplazamiento entre las estimacion de pose anterior y la pose
+        # actual X.
         gg=x.reshape((3,1))-g(x_ant,u_ant,self.config)
         gg[2]=entrepi(gg[2])
+
         hh=h(x,z,self)
         Rotador=Rota(x_ant[2][0])
         ooo=np.zeros((3,1))
+        # Calcula la diferencia entre los vectores desplazamiento. Entre la
+        # odometria y la pose x (de forma relativa, con respecto a la pose anterior)
+        # Ec. (16) del paper.
         ooo[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))\
                 -np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
         
         ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
         ooo[2]=entrepi(ooo[2])
+
         f=np.matmul(np.matmul(gg.T,self.config.R),gg)+\
            hh+\
            self.config.cte_odom*np.matmul(ooo.T,ooo)
@@ -337,7 +387,7 @@ def graficar(x,yy,N=0):
     plt.plot(odometria[0],odometria[1], 'g')
     plt.plot(yy[0],yy[1], 'b*')
     plt.axis('equal')
-    plt.show()
+    #plt.show()
 
 def graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios):
     

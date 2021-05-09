@@ -73,7 +73,7 @@ def g(xt,ut, config):
 
 def h(xt,zt,ICM):
     """
-    Función de potencial energético. 
+    Función de potencial energético debido a las observaciones y al mapa. 
 
     Modelo de las observaciones
     =============================
@@ -94,9 +94,11 @@ def h(xt,zt,ICM):
     alfa=zt[:,1]+xt[2]-np.pi/2.0
     zc=zt[:,0]*np.cos(alfa)
     zs=zt[:,0]*np.sin(alfa)
-    hh=np.concatenate((xt[0]+zc,xt[1]+zs)).reshape((len(alfa),2),order='F')-y
+    # Resta la posicion de cada punto al mapa "visto". (y no es todo el mapa,
+    # solo la parte matcheada en "actualizar mapa")
+    distancias=np.concatenate((xt[0]+zc,xt[1]+zs)).reshape((len(alfa),2),order='F')-y
     # Calcula la norma :math:`hh^TQhh`
-    hhh=np.matmul(hh,ICM.config.Q)
-    hh=np.sum(hhh*hh)
-    return hh
+    aux=np.matmul(distancias,ICM.config.Q)
+    potencial=np.sum(aux*distancias)
+    return potencial
 
