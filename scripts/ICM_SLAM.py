@@ -416,24 +416,25 @@ class Mapa:
         # Parámetros de configuracion inicial
         self.L=config.L
         self.cota=config.cota
-        self.dist_thr=config.dis_thr
-        self.clear() 
-
-        self.Landmarks_actuales=0
+        self.dist_thr=config.dist_thr
         
+        self.Landmarks_actuales=0
+        self.clear_obs() 
         #self.mapa=np.zeros((2,config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
+    
     def clear_obs(self):
         """
         Inicialización de variables internas
+
+        self.cant_obs_i=np.zeros(self.L)  #guarda la cantidad de veces que se observó el i-ésimo árbol
+
         """
         self.cant_obs_i=np.zeros(self.L)  #guarda la cantidad de veces que se observó el i-ésimo árbol
 
-    def actualizar(self,mapa,mapa_estatico,obs):
+    def actualizar(self,mapa,mapa_referencia,obs):
         """
 
         actualizar(self,mapa,mapa_referencia,obs,Lact)
-        
-        mapa,cant_obs_i,c,Lact=actualizar_mapa(mapa,yy,obs,Lact)
         
         Actualiza las variables relacionadas con la construcción del mapa. Como
         argumentos de entrada son el mismo mapa y las observaciones (de una sola
@@ -451,19 +452,21 @@ class Mapa:
         Parámetros:
         -----------
     
-        Entradas:
+        Entradas: mapa, mapa_referencia, obs
+        'Externas'
          - [2 x Lact] Mapa: Es una matriz con las posiciones 2D de todos árboles.
-         - yy o mapa_estatico: Es el mapa de referencia, que NO se modifca.
+         - yy o mapa_referencia: Es el mapa de referencia, que NO se modifca.
          - [(x,y) x Nobs] obs: Lista de observaciones en coordenadas cartecianas.
            Nobs son la cantidad de observaciones filtradas (sin outliers). 
+         'Internas'
          - [int] Lact: cantidad de árboles hasta el momento (Landmarks
            activos/actuales)
-        Salidas:
+
+        Salidas: mapa,c
         'Externas'
          - [2 x Lact] Mapa: Es una matriz con las posiciones 2D de 'Lact' árboles.
          - vector de etiquetas 'c': Vector de etiquetas de cada landmark. Dice a que landmark
            corresponde cada medición.
-         
         'Internas'
          - int [1 x Lact] cant_obs_i: Conteo de la cantidad de veces que se observo
            un árbol.
@@ -481,7 +484,7 @@ class Mapa:
     
         else:
             #me fijo si las observaciones corresponden a un arbol existente
-            distancias=cdist(mapa_estatico[:,:Lact].T,obs)#matriz de distancias entre yy y las obs nuevas
+            distancias=cdist(mapa_referencia[:,:Lact].T,obs)#matriz de distancias entre yy y las obs nuevas
             min_dist=np.amin(distancias,axis=0)#distancia minima desde cada obs a un arbol de yy
             c=np.argmin(distancias,axis=0)#etiqueta del arbol de yy que minimiza la distancia a cada obs nueva
             c[min_dist>self.dist_thr]=-1#si esta lejos de los arboles de yy le asigno la etiqueta -1 momentaneamente
@@ -520,7 +523,7 @@ class Mapa:
        Parámetros
        ----------
     
-       Entradas:
+       Entradas: mapa
        'Externas'
         - y o mapa: Mapa de entrada
        
@@ -528,7 +531,7 @@ class Mapa:
         - cant_obs_i: Cantidad de veces que se observo cada árbol ordenados por su
           índice
     
-       Salidas:
+       Salidas: mapa_filtrado
        'Externas'
         - yy o mapa_filtrado: mapa filtrado con los árboles más observados
        'Internas'
@@ -642,6 +645,7 @@ if __name__=='__main__':
 
     config=ConfigICM(z.shape[1])# Carga toda la configuración inicial
     ICM=ICM_method(config) # Crea el objeto de los minimizadores
+    mapa=Mapa(config)
     
     #preparo las observaciones
     zz=np.minimum(z+config.radio,z*0.0+config.rango_laser_max)  #guarda las observaciones laser... si la distancia de obs es mayor a rango_laser_max se setea directamente en rango_laser_max
@@ -660,14 +664,14 @@ if __name__=='__main__':
     #inicializacion de variables y arreglos auxiliares
     x0=np.zeros((3,1))  #guarda la pose actual (inicial en esta linea) del DDMR
     y=np.zeros((2,config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
-    cant_obs_i=np.zeros(config.L)  #$1 guarda la cantidad de veces que se observó el i-ésimo árbol
     x=np.zeros((3,config.Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
     
     #1) Iteracion inicial ICM
     xt=copy(x0) #pose inicial.  
     z=filtrar_z(zz[:,0],config)  #filtro la primer observacion [dist ang x y] x #obs
     zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
-    y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],0,config)
+    y,c=mapa.actualizar(y,y,zt[:,2:4])
+    #y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],0,config)
     
     #BUCLE TEMPORAL
     for t in range(1,config.Tf):
@@ -679,14 +683,16 @@ if __name__=='__main__':
             continue   #si no hay observaciones pasar al siguiente periodo de muestreo
         
         zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
-        y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
+        y,c=mapa.actualizar(y,y,zt[:,2:4])
+        #y,cant_obs_i,c,Lact=actualizar_mapa(y,y,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
         xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
     #     xt=xtc+0.0 #actualiza con el modelo cinemático para independizarse del optimizador
         x[:,t]=xt
     
     #filtro ubicaciones estimadas
-    [y,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact,config)
-    yy=y[:,:Lact]
+    y=mapa.filtrar(y)
+    #[y,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact,config)
+    yy=y[:,:mapa.Landmarks_actuales]
     
     #CALCULO CAMBIOS
     mapa_viejo=copy(yy)
@@ -715,13 +721,16 @@ if __name__=='__main__':
         print('iteración ICM : ',iteracionICM+1)
         xt=copy(x0) #pose inicial
         y=np.zeros((2,config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
-        cant_obs_i=np.zeros(config.L)  #guarda la cantidad de veces que se observó el i-ésimo árbol
+        mapa.clear_obs()
+        #cant_obs_i=np.zeros(config.L)  #guarda la cantidad de veces que se observó el i-ésimo árbol
         z=filtrar_z(zz[:,0],config)  #filtro la primer observacion [dist ang x y] x #obs
         if z.shape[0]==0:
             continue #si no hay observaciones pasar al siguiente periodo de muestreo
         
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
-        y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
+
+        y,c=mapa.actualizar(y,yy,zt[:,2:4])
+        #y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
     
         #BUCLE TEMPORAL
         for t in range(1,config.Tf):
@@ -732,7 +741,8 @@ if __name__=='__main__':
                 continue #si no hay observaciones pasar al siguiente periodo de muestreo
             
             zt=tras_rot_z(x[:,t],z)  #rota y traslada las observaciones de acuerdo a la pose actual
-            y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
+            y,c=mapa.actualizar(y,yy,zt[:,2:4])
+            #y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
             if t+1<config.Tf:
                 xt=ICM.minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
             else:
@@ -740,8 +750,11 @@ if __name__=='__main__':
             x[:,t]=xt
         
         #filtro ubicaciones estimadas
-        [yy,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact,config)
-        yy=yy[:,:Lact]
+
+        y=mapa.filtrar(y)
+        #[yy,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact,config)
+        yy=yy[:,:mapa.Landmarks_actuales]
+        print(mapa.Landmarks_actuales)
         
         #CALCULO DE CAMBIOS
         [cambio_minimo,cambio_maximo,cambio_medio]=calc_cambio(yy,mapa_viejo)
