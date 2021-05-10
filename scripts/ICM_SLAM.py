@@ -9,17 +9,8 @@ import matplotlib.pyplot as plt
 from copy import deepcopy as copy
 from external_options import *
 from funciones_varias import *
-#import sys
 
-
-#Permiso para acceder a datos del Drive
-#al correr esto te va a aparecer un link... entrá y darle permitir... la cuenta es javigimeneznn@gmail.com_______contraseña:jG32227013
 import scipy.io as sio
-#from google.colab import drive  # Load the Drive helper and mount
-#drive.mount('/content/drive')# This will prompt for authorization.
-
-#lectura de los datos de experimentación del paper IJAC2018
-#data = sio.loadmat('/content/drive/My Drive/Datasets/IJAC2018/data_IJAC2018.mat')#load from drive the .m with the database
 
 #FUNCIONES AUXILIARES
 
@@ -78,8 +69,10 @@ class ICM_method:
 
         Ec. (14) del paper.
         
-        yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra, repitiendo observaciones repetidas e ignorando ubicaciones no observadas
-        zz contiene las observaciones realizadas una abajo de la otra. La primer columna contiene distancias y la segunda ángulos relativos al laser del robot
+        yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra,
+        repitiendo observaciones repetidas e ignorando ubicaciones no observadas
+        zz contiene las observaciones realizadas una abajo de la otra. La primer columna contiene
+        distancias y la segunda ángulos relativos al laser del robot
          
          Entradas:
          - [distancia, ángulo] zz: Mediciones para un instante de
@@ -234,12 +227,14 @@ class ICM_method:
         """
         self.mediciones=mediciones
         self.u=u
-        self.mapa_obj=mapa_obj
+        self.mapa_obj=copy(mapa_obj)
         #print('Cargando datos')
         #print(self.mapa_obj.landmarks_actuales)
 
         if x0=='':
             self.x0=np.zeros((3,1))  #guarda la pose actual (inicial en esta linea) del DDMR
+        else:
+            self.x0=x0
 
     def itererar(self,mapa_viejo,x):
         """
@@ -262,19 +257,17 @@ class ICM_method:
          - Posiciones refinadas 'x' 
         """
 
-        xt=self.x0
+        xt=copy(self.x0)
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
         self.mapa_obj.clear_obs()
-        #cant_obs_i=np.zeros(config.L)  #guarda la cantidad de veces que se observó el i-ésimo árbol
         z=filtrar_z(self.mediciones[:,0],self.config)  #filtro la primer observacion [dist ang x y] x #obs
         if z.shape[0]==0:
-            return mapa_viejo,x
+            print('skip!!!!!!!!!')
+            return #mapa_viejo,x
             #continue #si no hay observaciones pasar al siguiente periodo de muestreo
         
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
-
         y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
-        #y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
     
         #BUCLE TEMPORAL
         for t in range(1,self.config.Tf):
@@ -286,7 +279,6 @@ class ICM_method:
             
             zt=tras_rot_z(x[:,t],z)  #rota y traslada las observaciones de acuerdo a la pose actual
             y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
-            #y,cant_obs_i,c,Lact=actualizar_mapa(y,yy,zt[:,2:4],Lact,config)  #actualizo (o creo) ubicación de arboles observados
             if t+1<config.Tf:
                 xt=ICM.minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
             else:
@@ -296,7 +288,6 @@ class ICM_method:
         #filtro ubicaciones estimadas
 
         yy=self.mapa_obj.filtrar(y)
-        #[yy,cant_obs_i,Lact]=filtrar_y(y,cant_obs_i,Lact,config)
         yy=yy[:,:self.mapa_obj.landmarks_actuales]
         #print(mapa.Landmarks_actuales)
         #print(mapa.cant_obs_i)
@@ -401,10 +392,14 @@ class Mapa:
             #actualizo (o creo) ubicación de arboles observados
             for i in range(Lact):
                 if len(c[c==i])>0:
-                    mapa[:,i]=np.sum(zt[c==i,2:4],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
-                            +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]\
-                            +len(c[c==i]))
+                    #mapa[:,i]=np.sum(zt[c==i,2:4],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
+                    #        +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]+len(c[c==i]))
     
+                    #                obs o zt?
+                    mapa[:,i]=np.sum(obs[c==i],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
+                            
+                            +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]+len(c[c==i]))
+                    
                     cant_obs_i[i]=cant_obs_i[i]+len(c[c==i])
 
         self.landmarks_actuales=Lact
@@ -556,8 +551,7 @@ if __name__=='__main__':
     ICM.load_data(mapa_obj,zz,u)
     for iteracionICM in range(config.N):
         print('iteración ICM : ',iteracionICM+1)
-        mapa_refinado,x=ICM.itererar(mapa_viejo,x)
-        
+        mapa_refinado,x=ICM.itererar(mapa_viejo,x) #$2
         #CALCULO DE CAMBIOS
         [cambio_minimo,cambio_maximo,cambio_medio]=calc_cambio(mapa_refinado,mapa_viejo)
         cambios_minimos[iteracionICM]=cambio_minimo
