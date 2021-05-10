@@ -12,9 +12,6 @@ from funciones_varias import *
 
 import scipy.io as sio
 
-#FUNCIONES AUXILIARES
-
-
 def filtrar_z(z,config):
     """
     zz=filtrar_z(z,config)
@@ -52,7 +49,6 @@ def filtrar_z(z,config):
       zz=np.array([])
 
     return zz
-
 
 class ICM_method:
     """
@@ -240,6 +236,10 @@ class ICM_method:
         """
         Este método inicializa las variables para que luego se pueda refinar mediante ICM el mapa y las poses históricas del
         vehículo.
+
+        Esta función es la que se implementa online. Toma los datos de las
+        mediciones, odometria, estados anteriores, etc. para estimar la pose
+        actual.
 
         Argumentos de entrada:
         ----------------------
@@ -528,9 +528,6 @@ class Mapa:
        self.cant_obs_i=cant_obs
 
        return mapa_filtrado
-
-
-
 
 if __name__=='__main__':
     """
