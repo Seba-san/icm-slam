@@ -236,6 +236,66 @@ class ICM_method:
         else:
             self.x0=x0
 
+    def inicializar(self,x):
+        """
+        Este método inicializa las variables para que luego se pueda refinar mediante ICM el mapa y las poses históricas del
+        vehículo.
+
+        Argumentos de entrada:
+        ----------------------
+        Variables:
+         - Posiciones actuales 'x'
+        Constantes:
+         - 'config'
+         - Mediciones 'z'
+         - acciones de control 'u'
+        
+        Argumentos de salida:
+        ---------------------
+         - Mapa actualizado 'mapa_refinado'
+         - Posiciones refinadas 'x' 
+        """
+
+        xt=copy(self.x0)
+        y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
+        self.mapa_obj.clear_obs()
+        z=filtrar_z(self.mediciones[:,0],self.config)  #filtro la primer observacion [dist ang x y] x #obs
+        if z.shape[0]==0:
+            #print('skip!!!!!!!!!')
+            return y,x
+            #continue #si no hay observaciones pasar al siguiente periodo de muestreo
+        
+        zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
+        y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
+    
+        #BUCLE TEMPORAL
+        for t in range(1,self.config.Tf):
+            xtc=g(xt,u[:,t-1],self.config)  #actualizo cinemáticamente la pose
+            z=filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
+            if z.shape[0]==0:
+                xt=xtc
+                x[:,t]=xt.T
+                continue   #si no hay observaciones pasar al siguiente periodo de muestreo
+            
+            zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
+            y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
+            xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
+            x[:,t]=xt
+        
+        #filtro ubicaciones estimadas
+
+        yy=self.mapa_obj.filtrar(y)
+        yy=yy[:,:self.mapa_obj.landmarks_actuales]
+        #print(mapa.Landmarks_actuales)
+        #print(mapa.cant_obs_i)
+        #print(yy)
+        
+      
+        mapa_inicial=copy(yy)
+
+        #graficar(x,yy,iteracionICM)#gráficos
+        return mapa_inicial,x 
+
     def itererar(self,mapa_viejo,x):
         """
         Este método refina mediante ICM el mapa y las poses históricas del
@@ -262,8 +322,8 @@ class ICM_method:
         self.mapa_obj.clear_obs()
         z=filtrar_z(self.mediciones[:,0],self.config)  #filtro la primer observacion [dist ang x y] x #obs
         if z.shape[0]==0:
-            print('skip!!!!!!!!!')
-            return #mapa_viejo,x
+            #print('skip!!!!!!!!!')
+            return mapa_viejo,x
             #continue #si no hay observaciones pasar al siguiente periodo de muestreo
         
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
@@ -397,7 +457,6 @@ class Mapa:
     
                     #                obs o zt?
                     mapa[:,i]=np.sum(obs[c==i],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
-                            
                             +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]+len(c[c==i]))
                     
                     cant_obs_i[i]=cant_obs_i[i]+len(c[c==i])
@@ -474,84 +533,49 @@ class Mapa:
 
 
 if __name__=='__main__':
-    # lectura de datos
-    # inicializar variables
-    # iteracion 0
-    # iteraciones ICM 
+    """
+    Estructura general del código
+     - lectura de datos
+     - inicializar variables
+     - iteracion 0
+     - iteraciones ICM 
+    """
 
-
-
+    # Lectura de datos
     data=sio.loadmat('data_IJAC2018.mat')
     odometria = np.array(data['odometry'])#3x1833
     z = np.array(data['observations']) # 181x1833
     u = np.array(data['velocities'])#2x1833
     del(data)
     
-    #print(odometria.shape)
-    #print(z.shape)
-    #print(u.shape)
-
+    
+    # Inicializacion de variables y objetos
     config=ConfigICM(z.shape[1])# Carga toda la configuración inicial
+    #Filtro de observaciones
+    zz=np.minimum(z+config.radio,z*0.0+config.rango_laser_max)
+
     ICM=ICM_method(config) # Crea el objeto de los minimizadores
     mapa_obj=Mapa(config)
-    
-    #preparo las observaciones
-    zz=np.minimum(z+config.radio,z*0.0+config.rango_laser_max)  #guarda las observaciones laser... si la distancia de obs es mayor a rango_laser_max se setea directamente en rango_laser_max
-
-
+    ICM.load_data(mapa_obj,zz,u)
     ##################### ITERACION ICM 0 #####################
-    """
-    Referencias
-    ^^^^^^^^^^^^
-    :math:`x_0` Pose inicial del vehículo, dado por: 
-      :math:`x_t=[ x_{t,x}, x_{t,y}, x_{t,\theta}]^T`
 
-    :math:`z_i=\{z_{t,i}:i=1,\cdots,n_t\}`, :math:`z_{t,i}=[ z_{t,i,d}, z_{t,i,\theta} ]^T`
-    """
-
-    #inicializacion de variables y arreglos auxiliares
-    x0=np.zeros((3,1))  #guarda la pose actual (inicial en esta linea) del DDMR
-    y=np.zeros((2,config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
     x=np.zeros((3,config.Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
-    
     #1) Iteracion inicial ICM
-    xt=copy(x0) #pose inicial.  
-    z=filtrar_z(zz[:,0],config)  #filtro la primer observacion [dist ang x y] x #obs
-    zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
-    y,c=mapa_obj.actualizar(y,y,zt[:,2:4])
-    
-    #BUCLE TEMPORAL
-    for t in range(1,config.Tf):
-        xtc=g(xt,u[:,t-1],config)  #actualizo cinemáticamente la pose
-        z=filtrar_z(zz[:,t],config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
-        if z.shape[0]==0:
-            xt=xtc
-            x[:,t]=xt.T
-            continue   #si no hay observaciones pasar al siguiente periodo de muestreo
-        
-        zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
-        y,c=mapa_obj.actualizar(y,y,zt[:,2:4])
-        xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
-        x[:,t]=xt
-    
-    #filtro ubicaciones estimadas
-    y=mapa_obj.filtrar(y)
-    yy=y[:,:mapa_obj.landmarks_actuales]
-    
-    #CALCULO CAMBIOS
-    mapa_viejo=copy(yy)
+    mapa_inicial,x=ICM.inicializar(x)
+
+    # Preparacion de gráficos
     cambios_minimos=np.zeros(config.N)
     cambios_maximos=np.zeros(config.N)
     cambios_medios=np.zeros(config.N)
+    graficar(x,mapa_inicial,odometria)#gráficos
     
-    graficar(x,yy,odometria)#gráficos
-    
+    mapa_viejo=copy(mapa_inicial)
     
     #2) Iteraciones ICM
-    ICM.load_data(mapa_obj,zz,u)
     for iteracionICM in range(config.N):
         print('iteración ICM : ',iteracionICM+1)
         mapa_refinado,x=ICM.itererar(mapa_viejo,x) #$2
+
         #CALCULO DE CAMBIOS
         [cambio_minimo,cambio_maximo,cambio_medio]=calc_cambio(mapa_refinado,mapa_viejo)
         cambios_minimos[iteracionICM]=cambio_minimo
