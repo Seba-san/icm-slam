@@ -1,5 +1,6 @@
 #Importa todos los paquetes
 import numpy as np
+import yaml
 import numpy.matlib
 from scipy.spatial.distance import pdist, squareform, cdist
 from scipy.signal import medfilt
@@ -7,8 +8,11 @@ from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.optimize import fmin
 import matplotlib.pyplot as plt
 from copy import deepcopy as copy
-from external_options import *
+#from external_options import *
+#from external_options import g, h
 from funciones_varias import *
+#import logging
+import sys
 
 import scipy.io as sio
 
@@ -50,19 +54,20 @@ def filtrar_z(z,config):
 
     return zz
 
-class ICM_method:
+class ICM_method():
     """
     Esta clase sirve para computar los mínimos a las funciones fun_x y fun_xn. 
     Como es necesario pasar argumentos entre la función a minimizar y el minimizador, se opta por
     utilizar esta *clase* en vez de declarar variables globales. 
     """
     def __init__(self,config):
+        #ICM_external.__init__(self,config)
         self.config=copy(config)
 
-    def minimizar_xn(self,zz,yy,xx_ant,xx_pos,uu,odometria):
+    def minimizar_xn(self,medicion_actual,mapa_visto,x_ant,x_pos,u,odometria):
         """
         xt=minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
-
+    
         Ec. (14) del paper.
         
         yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra,
@@ -71,24 +76,24 @@ class ICM_method:
         distancias y la segunda ángulos relativos al laser del robot
          
          Entradas:
-         - [distancia, ángulo] zz: Mediciones para un instante de
+         - [distancia, ángulo] medicion_actual: Mediciones para un instante de tiempo
          - [(x,y) x c ] yy: Mapa con los landmarks vistos en un instante de
            tiempo. 
-         - [x y \theta] xx_ant: Pose actual estimada con este minimizador.
-         - [x y \theta] xx_pos: Pose futura. 
-         - [v \omega] uu: Señal de control del instante anterior
+         - [x y \theta] x_ant: Pose actual estimada con este minimizador.
+         - [x y \theta] x_pos: Pose futura. 
+         - [v \omega] u: Señal de control del instante anterior
          - [x y \theta]  odometria: Estimación de la pose dado por la
            odometria en 2 instantes de tiempo.
         Salida:
          - x: la pose que minimiza el funcional fun_x.
 
         """
-        self.zopt=zz
-        self.yopt=yy
-        self.u_ant_opt=uu[:,0]
-        self.x_ant_opt=xx_ant.reshape((3,1))
-        self.u_act_opt=uu[:,1]
-        self.x_pos_opt=xx_pos.reshape((3,1))
+        self.medicion_actual=medicion_actual
+        self.mapa_visto=mapa_visto
+        self.u_ant_opt=u[:,0]
+        self.x_ant_opt=x_ant.reshape((3,1))
+        self.u_act_opt=u[:,1]
+        self.x_pos_opt=x_pos.reshape((3,1))
         self.odo_opt=odometria
         x=fmin(self.fun_xn,(self.x_ant_opt+self.x_pos_opt)/2.0,xtol=0.001,disp=0)
         return x
@@ -115,7 +120,7 @@ class ICM_method:
         f=self.fun_x(x)
 
         x=x.reshape((3,1))
-        gg=g(x,u_act,self.config)-x_pos
+        gg=self.g(x,u_act)-x_pos
         gg[2]=entrepi(gg[2])
 
         Rotador=Rota(x[2][0])
@@ -134,7 +139,7 @@ class ICM_method:
            +f
         return f
 
-    def minimizar_x(self,zz,yy,xx_ant,uu_ant,odometria):
+    def minimizar_x(self,medicion_actual,mapa_visto,x_ant,u_ant,odometria):
         """
         x=minimizar_x(self,zz,yy,xx_ant,uu_ant,odometria)
 
@@ -148,24 +153,24 @@ class ICM_method:
         xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
         
         Entradas:
-         - [distancia, ángulo] zz: Mediciones para un instante de
+         - [distancia, ángulo] medicion_actual: Mediciones para un instante de
            tiempo, filtradas (sin outliers).
-         - [(x,y) x c ] yy: Mapa con los landmarks vistos en un instante de
+         - [(x,y) x c ] mapa_visto: Mapa con los landmarks vistos en un instante de
            tiempo.
-         - [x y \theta] xx_ant: Pose anterior estimada con este minimizador.
-         - [v \omega] uu_ant: Señal de control del instante anterior
+         - [x y \theta] x_ant: Pose anterior estimada con este minimizador.
+         - [v \omega] u_ant: Señal de control del instante anterior
          - [x y \theta]  odometria: Estimación de la pose dado por la
            odometria en 2 instantes de tiempo.
         Salida:
          - x: la pose que minimiza el funcional fun_x. 
 
         """
-        self.zopt=zz
-        self.yopt=yy
-        self.u_ant_opt=uu_ant
-        self.x_ant_opt=xx_ant.reshape((3,1))
+        self.medicion_actual=medicion_actual
+        self.mapa_visto=mapa_visto
+        self.u_ant_opt=u_ant
+        self.x_ant_opt=x_ant.reshape((3,1))
         self.odo_opt=odometria
-        x=fmin(self.fun_x,g(self.x_ant_opt,self.u_ant_opt,self.config),xtol=0.001,disp=0)
+        x=fmin(self.fun_x,self.g(self.x_ant_opt,self.u_ant_opt),xtol=0.001,disp=0)
         return x
 
     def fun_x(self,x):
@@ -190,16 +195,16 @@ class ICM_method:
 
         """
 
-        z=self.zopt
+        z=self.medicion_actual
         x_ant=self.x_ant_opt
         u_ant=self.u_ant_opt
         odo=self.odo_opt
         # vector desplazamiento entre las estimacion de pose anterior y la pose
         # actual X.
-        gg=x.reshape((3,1))-g(x_ant,u_ant,self.config)
+        gg=x.reshape((3,1))-self.g(x_ant,u_ant)
         gg[2]=entrepi(gg[2])
 
-        hh=h(x,z,self)
+        hh=self.h(x,z)
         Rotador=Rota(x_ant[2][0])
         ooo=np.zeros((3,1))
         # Calcula la diferencia entre los vectores desplazamiento. Entre la
@@ -216,7 +221,7 @@ class ICM_method:
            self.config.cte_odom*np.matmul(ooo.T,ooo)
         return f
     
-    def load_data(self,mapa_obj,mediciones,u,x0=''):
+    def load_data(self,mapa_obj,mediciones,u,odometria,x0=''):
         """
         Antes de iterar es necesario cargar todas las observaciones y las
         acciones de control.
@@ -224,6 +229,7 @@ class ICM_method:
         self.mediciones=mediciones
         self.u=u
         self.mapa_obj=copy(mapa_obj)
+        self.odometria=odometria
         #print('Cargando datos')
         #print(self.mapa_obj.landmarks_actuales)
 
@@ -260,6 +266,9 @@ class ICM_method:
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
         self.mapa_obj.clear_obs()
         z=filtrar_z(self.mediciones[:,0],self.config)  #filtro la primer observacion [dist ang x y] x #obs
+        u=self.u
+        odometria=self.odometria
+
         if z.shape[0]==0:
             #print('skip!!!!!!!!!')
             return y,x
@@ -270,7 +279,7 @@ class ICM_method:
     
         #BUCLE TEMPORAL
         for t in range(1,self.config.Tf):
-            xtc=g(xt,u[:,t-1],self.config)  #actualizo cinemáticamente la pose
+            xtc=self.g(xt,u[:,t-1])  #actualizo cinemáticamente la pose
             z=filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
             if z.shape[0]==0:
                 xt=xtc
@@ -279,7 +288,7 @@ class ICM_method:
             
             zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
             y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
-            xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
+            xt=self.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
             x[:,t]=xt
         
         #filtro ubicaciones estimadas
@@ -321,6 +330,8 @@ class ICM_method:
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
         self.mapa_obj.clear_obs()
         z=filtrar_z(self.mediciones[:,0],self.config)  #filtro la primer observacion [dist ang x y] x #obs
+        odometria=self.odometria
+        u=self.u
         if z.shape[0]==0:
             #print('skip!!!!!!!!!')
             return mapa_viejo,x
@@ -339,10 +350,10 @@ class ICM_method:
             
             zt=tras_rot_z(x[:,t],z)  #rota y traslada las observaciones de acuerdo a la pose actual
             y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
-            if t+1<config.Tf:
-                xt=ICM.minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
+            if t+1<self.config.Tf:
+                xt=self.minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
             else:
-                xt=ICM.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
+                xt=self.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
             x[:,t]=xt
         
         #filtro ubicaciones estimadas
@@ -358,6 +369,56 @@ class ICM_method:
 
         #graficar(x,yy,iteracionICM)#gráficos
         return mapa_refinado,x 
+
+    def g(self,xt,ut):
+        print('Se necesita definir la cinematica del vehículo')
+        #msg=" en la funcion externa crear una funcion llamada g.\
+        #        La salida debe estar la pose del vehiculo"
+        #print(msg)
+        #logging.error("lal")
+        #logging.error('Se necesita definir la cinematica del vehículo')
+        sys.exit()
+        return np.zeros((3,1))
+
+    def h(self,xt,zt):
+        print('Se necesita definir la funcion de medicion')
+        sys.exit()
+        return 0
+
+class ConfigICM:
+    """
+    Núcleo de todos los parámetros de configuración y constantes. 
+    """
+    def __init__(self,Tf,configFile='config_default.yaml',D={}):
+        if not D:
+            arch=open(configFile, 'r')
+            Data = yaml.load(arch,Loader=yaml.FullLoader)
+            D=Data['D']
+            
+
+        # parámetros por default
+        self.N=D['N']  #cantidad de iteraciones de ICM
+        self.deltat=D['deltat']  #periodo de muestreo
+        self.Tf=Tf  #cantidad total de periodos de muestreo
+        self.L=D['L']  #cota superior de la cantidad de objetos (max landmarks)
+        
+        self.Q=np.eye(2)#matriz de covarianza de las observaciones
+        self.Q[0,0]=D['Q'][0] 
+        self.Q[1,1]=D['Q'][1] 
+        
+        self.R=np.eye(3) #matriz de covarianza del motion model
+        self.R[0,0]=D['R'][0]
+        self.R[1,1]=D['R'][1]
+        self.R[2,2]=D['R'][2]
+
+        self.cte_odom=D['cte_odom']  #S=diag([cte_odom,cte_odom,cte_odom]) matriz de peso de los datos odométricos
+        self.cota=D['cota']  #cantidad de veces que hay q ver un arbol para q se considere un arbol
+        self.dist_thr=D['dist_thr']  #distancia máxima para que dos obs sean consideradas del mismo objeto
+        self.dist_thr_obs=D['dist_thr_obs']  #distancia máxima para que dos obs sean consideradas del mismo objeto en el proceso de filtrado de las observaciones
+        self.rango_laser_max=D['rango_laser_max']  #alcance máximo del laser
+        self.radio=D['radio'] #radio promedio de los árboles
+
+
 
 class Mapa:
     """
@@ -528,59 +589,4 @@ class Mapa:
        self.cant_obs_i=cant_obs
 
        return mapa_filtrado
-
-if __name__=='__main__':
-    """
-    Estructura general del código
-     - lectura de datos
-     - inicializar variables
-     - iteracion 0
-     - iteraciones ICM 
-    """
-
-    # Lectura de datos
-    data=sio.loadmat('data_IJAC2018.mat')
-    odometria = np.array(data['odometry'])#3x1833
-    z = np.array(data['observations']) # 181x1833
-    u = np.array(data['velocities'])#2x1833
-    del(data)
-    
-    
-    # Inicializacion de variables y objetos
-    config=ConfigICM(z.shape[1])# Carga toda la configuración inicial
-    #Filtro de observaciones
-    zz=np.minimum(z+config.radio,z*0.0+config.rango_laser_max)
-
-    ICM=ICM_method(config) # Crea el objeto de los minimizadores
-    mapa_obj=Mapa(config)
-    ICM.load_data(mapa_obj,zz,u)
-    ##################### ITERACION ICM 0 #####################
-
-    x=np.zeros((3,config.Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
-    #1) Iteracion inicial ICM
-    mapa_inicial,x=ICM.inicializar(x)
-
-    # Preparacion de gráficos
-    cambios_minimos=np.zeros(config.N)
-    cambios_maximos=np.zeros(config.N)
-    cambios_medios=np.zeros(config.N)
-    graficar(x,mapa_inicial,odometria)#gráficos
-    
-    mapa_viejo=copy(mapa_inicial)
-    
-    #2) Iteraciones ICM
-    for iteracionICM in range(config.N):
-        print('iteración ICM : ',iteracionICM+1)
-        mapa_refinado,x=ICM.itererar(mapa_viejo,x) #$2
-
-        #CALCULO DE CAMBIOS
-        [cambio_minimo,cambio_maximo,cambio_medio]=calc_cambio(mapa_refinado,mapa_viejo)
-        cambios_minimos[iteracionICM]=cambio_minimo
-        cambios_maximos[iteracionICM]=cambio_maximo
-        cambios_medios[iteracionICM]=cambio_medio
-        mapa_viejo=copy(mapa_refinado)
-    
-        graficar(x,mapa_refinado,odometria,iteracionICM)#gráficos
-
-    graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios)
 

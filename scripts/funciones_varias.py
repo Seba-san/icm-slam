@@ -3,6 +3,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import pdist, squareform, cdist
 
+def entrepi(angulo):
+    """
+    retorna el ángulo equivalente entre -pi y pi
+    """
+    angulo=np.mod(angulo,2*np.pi)
+    if angulo>np.pi:
+      angulo=angulo-2*np.pi
+    
+    return angulo
+
 def tras_rot_z(x,z):
     """
      - Rota y traslada las observaciones de acuerdo a la pose actual
