@@ -9,5 +9,7 @@ D:
     dist_thr: 1.0  
     dist_thr_obs: 1  
     rango_laser_max: 10.0  
-    radio: 0.137 
+    radio: 0.137
+    topic: ''
+    file: 'data_IJAC2018.mat'
 
