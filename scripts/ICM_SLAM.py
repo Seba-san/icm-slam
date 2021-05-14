@@ -8,13 +8,15 @@ from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.optimize import fmin
 import matplotlib.pyplot as plt
 from copy import deepcopy as copy
-#from external_options import *
-#from external_options import g, h
 from funciones_varias import *
 #import logging
 import sys
+import math
 
 import scipy.io as sio
+import roslibpy # Conectarse a una red ROS
+
+import time
 
 def filtrar_z(z,config):
     """
@@ -62,7 +64,8 @@ class ICM_method():
     """
     def __init__(self,config):
         #ICM_external.__init__(self,config)
-        self.config=copy(config)
+        self.config=config
+        self.seq0=0
 
     def minimizar_xn(self,medicion_actual,mapa_visto,x_ant,x_pos,u,odometria):
         """
@@ -167,8 +170,8 @@ class ICM_method():
         """
         self.medicion_actual=medicion_actual
         self.mapa_visto=mapa_visto
-        self.u_ant_opt=u_ant
-        self.x_ant_opt=x_ant.reshape((3,1))
+        self.u_ant_opt=u_ant  # $2 ver
+        self.x_ant_opt=x_ant.reshape((3,1))# $2 ver
         self.odo_opt=odometria
         x=fmin(self.fun_x,self.g(self.x_ant_opt,self.u_ant_opt),xtol=0.001,disp=0)
         return x
@@ -196,9 +199,9 @@ class ICM_method():
         """
 
         z=self.medicion_actual
-        x_ant=self.x_ant_opt
-        u_ant=self.u_ant_opt
-        odo=self.odo_opt
+        x_ant=self.x_ant_opt# $2 ver
+        u_ant=self.u_ant_opt# $2 ver
+        odo=self.odo_opt# $2 ver
         # vector desplazamiento entre las estimacion de pose anterior y la pose
         # actual X.
         gg=x.reshape((3,1))-self.g(x_ant,u_ant)
@@ -260,6 +263,9 @@ class ICM_method():
         ---------------------
          - Mapa actualizado 'mapa_refinado'
          - Posiciones refinadas 'x' 
+
+         Como referencia toma como maximo 0.01 segundos por iteracion. (no sé
+         de que depende.)
         """
 
         xt=copy(self.x0)
@@ -280,6 +286,7 @@ class ICM_method():
         #BUCLE TEMPORAL
         for t in range(1,self.config.Tf):
             # aca va el bucle ros.
+            #inicio=time.time()
             xtc=self.g(xt,u[:,t-1])  #actualizo cinemáticamente la pose
             z=filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
             if z.shape[0]==0:
@@ -291,6 +298,8 @@ class ICM_method():
             y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
             xt=self.minimizar_x(z[:,0:2],y[:,c].T,xt,u[:,t-1],odometria[:,t-1:t+1])
             x[:,t]=xt
+            #final=time.time()
+            #print('Tiempo transcurrido: ',inicio-final)
         
         #filtro ubicaciones estimadas
 
@@ -300,6 +309,26 @@ class ICM_method():
 
         #graficar(x,yy,iteracionICM)#gráficos
         return mapa_inicial,x 
+
+    def inicializar_online(self,y,xt):
+        """
+        callback del servicio de ROS
+        """
+
+        #xtc=self.g(xt,u[:,t-1])  #actualizo cinemáticamente la pose
+        xtc=self.odometria[:,-1]
+        z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
+        if z.shape[0]==0:
+            xt=xtc
+            #x[:,t]=xt.T
+            return y,xt
+            #continue   #si no hay observaciones pasar al siguiente periodo de muestreo
+        
+        zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
+        y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
+        xt=self.minimizar_x(z[:,0:2],y[:,c].T,xt,self.odometria[:,-2:-1])
+
+        return y,xt
 
     def itererar(self,mapa_viejo,x):
         """
@@ -366,6 +395,71 @@ class ICM_method():
         #graficar(x,yy,iteracionICM)#gráficos
         return mapa_refinado,x
 
+    def connect_ros(self):
+
+        client = roslibpy.Ros(host='localhost', port=9090)
+        client.run()
+        if  client.is_connected:
+            print('Conectado a la red ROS')
+        else:
+            print('No se puedo conectar a la red ROS')
+            client.terminate()
+
+        listener_laser = roslibpy.Topic(client, self.config.topic_laser,
+                self.config.topic_laser_msg)
+        listener_laser.subscribe(self.callback_laser)
+
+        listener_odometry = roslibpy.Topic(client, self.config.topic_odometry,
+                self.config.topic_odometry_msg)
+        listener_odometry.subscribe(self.callback_odometry)
+        
+        try:
+               while True:
+                   pass
+        except KeyboardInterrupt:
+               client.terminate()
+ 
+    def callback_laser(self,msg):
+        """
+        LaserScan:angle_min, range_min, scan_time, range_max, angle_increment, angle_max,ranges,
+        header, intensities.
+        header: stamp, frame_id,seq
+        """
+        #print('Heard talking: ')
+       # s=msg['header']['stamp']['secs']
+       # ns=msg['header']['stamp']['nsecs']
+       # timestamp=float(s+ns*10**-9)
+       # stamp=msg['header']['seq']
+       # print('laser seq: ',stamp)
+        if self.seq<self.mediciones.size: # check amount of odometry with laser
+            z=np.array(msg['ranges'])
+            z(np.isnan(z.astype('float')))=self.config.rango_laser_max # clear None value
+            z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
+            self.mediciones=np.concatenate(self.mediciones,z)
+
+    def callback_odometry(self,msg):
+        """
+        'twist': {'twist': {'linear': {'y':, 'x':, 'z':}, 'angular': {'y':, 'x':, 'z':}},  'covariance':, 'header': 
+        'pose': {'pose': {'position': {'y':, 'x':, 'z':}, 'orientation': {'y':, 'x':, 'z':, 'w':}},'covariance':, 'child_frame_id':}
+        """
+        if self.seq0==0:
+            self.seq0=msg['header']['seq']
+        
+        self.seq=msg['header']['seq']-self.seq0
+        x=msg['pose']['pose']['x']
+        y=msg['pose']['pose']['y']
+        fi_x=msg['pose']['orientation']['x']
+        fi_y=msg['pose']['orientation']['y']
+        fi_z=msg['pose']['orientation']['z']
+        fi_w=msg['pose']['orientation']['w']
+        # Sacado de la libreria de cuaterniones
+        t3 = +2.0 * (fi_w * fi_z + fi_x * fi_y)
+        t4 = +1.0 - 2.0 * (fi_y **2 + fi_z **2)
+        yaw_z = math.atan2(t3, t4)
+        odo=np.array([x,y,yaw_z])
+        self.odometria=np.concatenate(self.odometria,odo)
+        self.inicializar_online()
+        
     def g(self, xt,ut):
         """
         Modelo de la odometría
@@ -456,7 +550,12 @@ class ConfigICM:
         self.rango_laser_max=D['rango_laser_max']  #alcance máximo del laser
         self.radio=D['radio'] #radio promedio de los árboles
 
-        self.topic=D['topic']
+        self.topic_laser=D['topic_laser']
+        self.topic_laser_msg=D['topic_laser_msg']
+        
+        self.topic_odometry=D['topic_odometry']
+        self.topic_odometry_msg=D['topic_odometry_msg']
+
         self.file=D['file']
 
     def set_Tf(self,Tf):

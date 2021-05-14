@@ -14,8 +14,6 @@ if __name__=='__main__':
     listener = roslibpy.Topic(client, '/chatter', 'std_msgs/String')
     listener.subscribe(handler)
 
-
-    
     try:
         while True:
             pass

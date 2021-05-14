@@ -25,14 +25,12 @@ class ICM_external(ICM_method):
         return 0
 
     def fun_x_(self):
-        print('Se necesita definir el argumento a minimizar para las
-                iteraciones online')
+        print('Se necesita definir el argumento a minimizar para las iteraciones online')
         sys.exit()
         return 0
 
     def fun_xn_(self):
-        print('Se necesita definir el argumento a minimizar para las
-                iteraciones offline')
+        print('Se necesita definir el argumento a minimizar para las iteraciones offline')
         sys.exit()
         return 0
 
@@ -46,28 +44,29 @@ if __name__=='__main__':
     """
 
     # Inicializacion de variables y objetos
-    config=ConfigICM()# Carga toda la configuración inicial
+    config=ConfigICM('config_ros.yaml')# Carga toda la configuración inicial
     # Lectura de datos
-    data=sio.loadmat(config.file)
-    odometria = np.array(data['odometry'])#3x1833
-    z = np.array(data['observations']) # 181x1833
-    u = np.array(data['velocities'])#2x1833
-    del(data)
+    #data=sio.loadmat(config.file)
+    #odometria = np.array(data['odometry'])#3x1833
+    #z = np.array(data['observations']) # 181x1833
+    #u = np.array(data['velocities'])#2x1833
+    #del(data)
     
     #Filtro de observaciones
     zz=np.minimum(z+config.radio,z*0.0+config.rango_laser_max)
 
     #ICM=ICM_method(config) # Crea el objeto de los minimizadores
-    config.set_Tf(z.shape(1)) 
+    #config.set_Tf(z.shape[1]) 
     ICM=ICM_external(config) # Crea el objeto de los minimizadores
     mapa_obj=Mapa(config)
-    ICM.load_data(mapa_obj,zz,u,odometria)
+    #ICM.load_data(mapa_obj,zz,u,odometria)
     ##################### ITERACION ICM 0 #####################
 
-    x=np.zeros((3,config.Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
+    #x=np.zeros((3,config.Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
     #1) Iteracion inicial ICM
+    ICM.connect_ros()
+    """
     mapa_inicial,x=ICM.inicializar(x)
-
     # Preparacion de gráficos
     cambios_minimos=np.zeros(config.N)
     cambios_maximos=np.zeros(config.N)
@@ -91,4 +90,4 @@ if __name__=='__main__':
         graficar(x,mapa_refinado,odometria,iteracionICM)#gráficos
 
     graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios)
-
+    """
