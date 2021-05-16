@@ -15,4 +15,5 @@ D:
     topic_odometry: '/pioneer2dx/ground_truth/odom'
     topic_odometry_msg: 'nav_msgs/Odometry'
     file: 'data_IJAC2018.mat'
+    sensors: 'revisar'
 
