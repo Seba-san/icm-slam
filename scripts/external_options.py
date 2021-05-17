@@ -59,13 +59,12 @@ if __name__=='__main__':
     #config.set_Tf(z.shape[1]) 
     ICM=ICM_external(config) # Crea el objeto de los minimizadores
     mapa_obj=Mapa(config)
-    #ICM.load_data(mapa_obj,zz,u,odometria)
+    ICM.load_data(mapa_obj,zz,u,odometria)
     ##################### ITERACION ICM 0 #####################
 
-    #x=np.zeros((3,config.Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
     #1) Iteracion inicial ICM
-    ICM.connect_ros()
-    """
+    #"""
+    x=np.zeros((3,config.Tf))  #guarda la pose del DDMR en los Tf periodos de muestreo
     mapa_inicial,x=ICM.inicializar(x)
     # Preparacion de gráficos
     cambios_minimos=np.zeros(config.N)
@@ -90,4 +89,4 @@ if __name__=='__main__':
         graficar(x,mapa_refinado,odometria,iteracionICM)#gráficos
 
     graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios)
-    """
+    #"""

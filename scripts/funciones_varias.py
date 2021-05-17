@@ -51,7 +51,7 @@ def graficar(x,yy,odometria,N=0):
     plt.plot(odometria[0],odometria[1], 'g')
     plt.plot(yy[0],yy[1], 'b*')
     plt.axis('equal')
-    #plt.show()
+    plt.show()
 
 def graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios):
     

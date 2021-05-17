@@ -62,10 +62,13 @@ class ICM_method():
     Como es necesario pasar argumentos entre la función a minimizar y el minimizador, se opta por
     utilizar esta *clase* en vez de declarar variables globales. 
     """
-    def __init__(self,config):
+    def __init__(self,config,x0=''):
         #ICM_external.__init__(self,config)
         self.config=config
-        self.seq0=0
+        if x0=='':
+            self.x0=np.zeros((3,1))  #guarda la pose actual (inicial en esta linea) del DDMR
+        else:
+            self.x0=x0
 
     def minimizar_xn(self,medicion_actual,mapa_visto,x_ant,x_pos,u,odometria):
         """
@@ -162,7 +165,7 @@ class ICM_method():
         """
         self.medicion_actual=medicion_actual
         self.mapa_visto=mapa_visto
-        x=fmin(self.fun_x,self.g(self.x_ant_opt,self.u_ant_opt),xtol=0.001,disp=0)
+        x=fmin(self.fun_x,self.xt,xtol=0.001,disp=0)
         return x
 
     def fun_x(self,x):
@@ -188,13 +191,16 @@ class ICM_method():
         """
 
         z=self.medicion_actual
-        x_ant=self.x_ant_opt# $2 ver
-        u_ant=self.u_ant_opt# $2 ver
-        odo=self.odometria[:,-2:-1]
+        #x_ant=self.x_ant_opt# $2 ver
+        x_ant=self.xt
+        #u_ant=self.u_ant_opt# $2 ver
+        #print(self.odometria)
+        odo=self.odometria[:,-2:] # Los ultimos 2
+        #print(odo)
         # vector desplazamiento entre las estimacion de pose anterior y la pose
         # actual X.
-        gg=x.reshape((3,1))-self.g(x_ant,u_ant)
-        gg[2]=entrepi(gg[2])
+        #gg=x.reshape((3,1))-self.g(x_ant,u_ant)
+        #gg[2]=entrepi(gg[2])
 
         hh=self.h(x,z)
         Rotador=Rota(x_ant[2][0])
@@ -207,12 +213,17 @@ class ICM_method():
         
         ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
         ooo[2]=entrepi(ooo[2])
-
+        
+        """
         f=np.matmul(np.matmul(gg.T,self.config.R),gg)+\
            hh+\
            self.config.cte_odom*np.matmul(ooo.T,ooo)
         return f
-    
+        """
+
+        f=hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        return f
+
     def load_data(self,mapa_obj,mediciones,u,odometria,x0=''):
         """
         Antes de iterar es necesario cargar todas las observaciones y las

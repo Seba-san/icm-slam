@@ -1,24 +1,31 @@
 import numpy as np
 import roslibpy # Conectarse a una red ROS
-from ICM_SLAM import ICM_method
+from ICM_SLAM import ICM_method,ConfigICM,Mapa, filtrar_z,tras_rot_z
+from ICM_SLAM import graficar
+from copy import deepcopy as copy
+import time
+import math
 
 
-
-class ROS_package(ICM_method):
+class ICM_ROS(ICM_method):
     def __init__(self,config):
         ICM_method.__init__(self,config)
         self.new_data=False
+        self.odometria=copy(self.x0)
+        self.mediciones=np.zeros((180,1))# depende de la configuracion del sensor
     
+        self.seq0=0
+        self.seq=0
+
     def connect_ros(self):
         
         self.client = roslibpy.Ros(host='localhost', port=9090)
         #client.run_forever()
         self.client.run()
-        if  client.is_connected:
+        if  self.client.is_connected:
             print('Conectado a la red ROS')
         else:
-            print('No se puedo conectar a la red ROS')
-            client.terminate()
+            self.disconnect_ros()
 
         listener_laser = roslibpy.Topic(self.client, self.config.topic_laser,
                 self.config.topic_laser_msg)
@@ -36,6 +43,7 @@ class ROS_package(ICM_method):
                client.terminate()
         """
     def disconnect_ros(self):
+        print('No se puedo conectar a la red ROS')
         self.client.terminate()
 
  
@@ -51,46 +59,83 @@ class ROS_package(ICM_method):
        # timestamp=float(s+ns*10**-9)
        # stamp=msg['header']['seq']
        # print('laser seq: ',stamp)
-        if self.seq<self.mediciones.size: # same amount of odometry with laser items
-            z=np.array(msg['ranges'])
-            z(np.isnan(z.astype('float')))=self.config.rango_laser_max # clear None value
-            z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
-            self.mediciones=np.concatenate(self.mediciones,z)
+        if self.seq0==0:
+            self.seq0=msg['header']['seq']
+        
+        self.seq=msg['header']['seq']-self.seq0
+
+        #if self.seq<self.mediciones.shape[1] and self.seq0>0: # same amount of odometry with laser items
+        z=np.array([msg['ranges']],dtype=np.float)
+        z=z.T[0:-1:4] # subsampling from 720 to 180
+        z[np.isnan(z.astype('float'))]=self.config.rango_laser_max # clear None value
+        z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
+        #if self.mediciones==[]:
+        #    self.mediciones=z
+        #else:
+        #print('###!! z shape : ',z.shape)
+        #print('###!! z  : ',z)
+        
+        self.mediciones=np.concatenate((self.mediciones,z),axis=1)
+
+        #self.new_data=True
+        #print('##!! Seq: ',self.seq)
 
     def callback_odometry(self,msg):
         """
         'twist': {'twist': {'linear': {'y':, 'x':, 'z':}, 'angular': {'y':, 'x':, 'z':}},  'covariance':, 'header': 
         'pose': {'pose': {'position': {'y':, 'x':, 'z':}, 'orientation': {'y':, 'x':, 'z':, 'w':}},'covariance':, 'child_frame_id':}
         """
-        if self.seq0==0:
-            self.seq0=msg['header']['seq']
-        
-        self.seq=msg['header']['seq']-self.seq0
-        x=msg['pose']['pose']['x']
-        y=msg['pose']['pose']['y']
-        fi_x=msg['pose']['orientation']['x']
-        fi_y=msg['pose']['orientation']['y']
-        fi_z=msg['pose']['orientation']['z']
-        fi_w=msg['pose']['orientation']['w']
-        # Sacado de la libreria de cuaterniones
-        # Fuente: https://github.com/Seba-san/pyquaternion
-        t3 = +2.0 * (fi_w * fi_z + fi_x * fi_y)
-        t4 = +1.0 - 2.0 * (fi_y **2 + fi_z **2)
-        yaw_z = math.atan2(t3, t4)
-        odo=np.array([x,y,yaw_z])
-        self.odometria=np.concatenate(self.odometria,odo)
-        self.new_data=True
+
+        if self.seq>self.odometria.shape[1] and self.seq0>0: # same amount of odometry with laser items
+            msg=msg['pose']['pose']
+            #print('#### ',msg['position'])
+            x=msg['position']['x']
+            y=msg['position']['y']
+            fi_x=msg['orientation']['x']
+            fi_y=msg['orientation']['y']
+            fi_z=msg['orientation']['z']
+            fi_w=msg['orientation']['w']
+            # Sacado de la libreria de cuaterniones
+            # Fuente: https://github.com/Seba-san/pyquaternion
+            t3 = +2.0 * (fi_w * fi_z + fi_x * fi_y)
+            t4 = +1.0 - 2.0 * (fi_y **2 + fi_z **2)
+            yaw_z = math.atan2(t3, t4)
+            odo=np.array([[x,y,yaw_z]])
+            self.odometria=np.concatenate((self.odometria,odo.T),axis=1)
+
+            self.new_data=True
+            #print(self.odometria)
+            #print('odometry shape: ',self.odometria.shape[1])
+            #print('##!! Seq: ',self.seq)
         
     def inicializar_online(self):
-        self.connect_ros()
 
-        while True: # Solo para test, luego incorporar el servicio
+        xt=copy(self.x0)
+        x=copy(self.x0)
+        y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
+        self.mapa_obj=Mapa(config)
+
+
+        self.connect_ros()
+        t=time.time()
+        k=10;
+        while time.time()<t+300.0: # Solo para test, luego incorporar el servicio
             if self.new_data:
                 self.new_data=False
-                self.inicializar_online_process(y,xt)
+                y,xt=self.inicializar_online_process(y,xt)
+                xt=np.reshape(xt,(3,1))
+                #print(xt)
+                x=np.concatenate((x,xt),axis=1)
+                if (time.time()-t)>k:
+                    k=k+10
+                    print('Tiempo restante: ',300.0- (time.time()-t))
+                
+                #mapa_inicial,x=ICM.inicializar(x)
 
+        graficar(x,y,self.odometria)
         self.disconnect_ros()
-        self.itererar(mapa_viejo,x)
+
+        #self.itererar(mapa_viejo,x)
 
     def inicializar_online_process(self,y,xt):
         """
@@ -98,9 +143,10 @@ class ROS_package(ICM_method):
         """
 
         #xtc=self.g(xt,u[:,t-1])  #actualizo cinemáticamente la pose
-        xtc=self.odometria[:,-1]
+        xtc=self.odometria[:,-1].reshape((3,1))
         z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
         if z.shape[0]==0:
+            #print('###!! Sin mediciones, abort')
             xt=xtc
             #x[:,t]=xt.T
             return y,xt
@@ -108,6 +154,13 @@ class ROS_package(ICM_method):
         
         zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
         y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
-        xt=self.minimizar_x(z[:,0:2],y[:,c].T,xt,self.odometria[:,-2:-1])
-
+        self.xt=xtc
+        #print('##!! Seq: ',self.seq)
+        xt=self.minimizar_x(z[:,0:2],y[:,c].T)
         return y,xt
+
+if __name__=='__main__':
+    config=ConfigICM('config_ros.yaml')
+    ICM=ICM_ROS(config)
+    ICM.inicializar_online()
+
