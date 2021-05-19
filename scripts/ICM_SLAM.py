@@ -474,6 +474,7 @@ class ConfigICM:
         self.topic_odometry_msg=D['topic_odometry_msg']
 
         self.file=D['file']
+        self.time=D['time'] # tiempo de test para la inicializacion online.
 
     def set_Tf(self,Tf):
         self.Tf=Tf  #cantidad total de periodos de muestreo

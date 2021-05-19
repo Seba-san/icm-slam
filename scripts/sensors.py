@@ -119,7 +119,7 @@ class ICM_ROS(ICM_method):
         self.connect_ros()
         t=time.time()
         k=10;
-        while time.time()<t+300.0: # Solo para test, luego incorporar el servicio
+        while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
             if self.new_data:
                 self.new_data=False
                 y,xt=self.inicializar_online_process(y,xt)
@@ -128,7 +128,7 @@ class ICM_ROS(ICM_method):
                 x=np.concatenate((x,xt),axis=1)
                 if (time.time()-t)>k:
                     k=k+10
-                    print('Tiempo restante: ',300.0- (time.time()-t))
+                    print('Tiempo restante: ',self.config.time- (time.time()-t))
                 
                 #mapa_inicial,x=ICM.inicializar(x)
 
