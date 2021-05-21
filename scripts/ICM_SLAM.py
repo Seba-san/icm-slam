@@ -70,10 +70,8 @@ class ICM_method():
         else:
             self.x0=x0
 
-    def minimizar_xn(self,medicion_actual,mapa_visto,x_ant,x_pos,u,odometria):
+    def minimizar_xn(self,medicion_actual,mapa_visto,x,t):
         """
-        xt=minimizar_xn(z[:,0:2],y[:,c].T,xt,x[:,t+1],u[:,t-1:t+1],odometria[:,t-1:t+2])
-    
         Ec. (14) del paper.
         
         yy contiene las ubicaciones estimadas hasta el momento de los arboles observados una abajo de la otra,
@@ -94,14 +92,14 @@ class ICM_method():
          - x: la pose que minimiza el funcional fun_x.
 
         """
+        self.x_ant=x[:,t-1].reshape((3,1))
+        self.x_pos=x[:,t+1].reshape((3,1))
+       
+        self.xt=x[:,t].reshape((3,1))
+        self.t=t
         self.medicion_actual=medicion_actual
         self.mapa_visto=mapa_visto
-        self.u_ant_opt=u[:,0]
-        self.x_ant_opt=x_ant.reshape((3,1))
-        self.u_act_opt=u[:,1]
-        self.x_pos_opt=x_pos.reshape((3,1))
-        self.odo_opt=odometria
-        x=fmin(self.fun_xn,(self.x_ant_opt+self.x_pos_opt)/2.0,xtol=0.001,disp=0)
+        x=fmin(self.fun_xn,(self.x_ant+self.x_pos)/2.0,xtol=0.001,disp=0)
         return x
 
     def fun_xn(self,x):
@@ -119,30 +117,41 @@ class ICM_method():
          - f: Potencial energético debido al modelo cinemático y a la
            odometría.
         """
-        x_pos=self.x_pos_opt
-        u_act=self.u_act_opt
-        odo=self.odo_opt
-
-        f=self.fun_x(x)
 
         x=x.reshape((3,1))
-        gg=self.g(x,u_act)-x_pos
-        gg[2]=entrepi(gg[2])
-
+        t=self.t
+        # Second part 
+        odo=self.odometria[:,t-1:t+2]
+        x_pos=self.x_pos
         Rotador=Rota(x[2][0])
-        ooo=np.zeros((3,1))
+        ooo_pos=np.zeros((3,1))
         # Calcula la diferencia entre los vectores desplazamiento. Entre la
         # odometria y la pose x (de forma relativa, con respecto a la pose anterior)
         # Ec. (16) del paper.
-        ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))\
-                -np.matmul(Rotador,x_pos[0:2]-x[0:2])
+        # Meter esto dentro de otra funcion.
+        ooo_pos[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))\
+                -np.matmul(Rotador,x_pos[0:2]-x[0:2]) 
 
-        ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
-        ooo[2]=entrepi(ooo[2])
+        ooo_pos[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
+        ooo_pos[2]=entrepi(ooo_pos[2])
+        
+        # First part
+        x_ant=self.x_ant
+        odo=self.odometria[:,t-2:t]
+        Rotador=Rota(x_ant[2][0])
+        
+        ooo_ant=np.zeros((3,1))
+        ooo_ant[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))\
+                -np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
+        ooo_ant[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
+        ooo_ant[2]=entrepi(ooo_ant[2])
 
-        f=np.matmul(np.matmul(gg.T,self.config.R),gg)\
-           +self.config.cte_odom*np.matmul(ooo.T,ooo)\
-           +f
+        z=self.medicion_actual
+        hh=self.h(x,z)
+
+        f=self.config.cte_odom*np.matmul(ooo_pos.T,ooo_pos)\
+           +hh\
+           +self.config.cte_odom*np.matmul(ooo_ant.T,ooo_ant)
         return f
 
     def minimizar_x(self,medicion_actual,mapa_visto):

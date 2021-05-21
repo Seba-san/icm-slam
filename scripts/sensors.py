@@ -14,6 +14,7 @@ class ICM_ROS(ICM_method):
         self.odometria=copy(self.x0)
         self.mediciones=np.zeros((180,1))# depende de la configuracion del sensor
     
+        self.iterations_flag=False #
         self.seq0=0
         self.seq=0
 
@@ -34,6 +35,10 @@ class ICM_ROS(ICM_method):
         listener_odometry = roslibpy.Topic(self.client, self.config.topic_odometry,
                 self.config.topic_odometry_msg)
         listener_odometry.subscribe(self.callback_odometry)
+
+        service = roslibpy.Service(self.client, '/icm_slam/iterative_flag','std_srvs/SetBool')
+        service.advertise(self.icm_iterations_service)
+        #request = roslibpy.ServiceRequest()
          
         """
         try:
@@ -118,7 +123,7 @@ class ICM_ROS(ICM_method):
 
         self.connect_ros()
         t=time.time()
-        k=10;
+        k=10; # Intervalo de tiempo en segundos para mostrar mensaje.
         while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
             if self.new_data:
                 self.new_data=False
@@ -131,6 +136,11 @@ class ICM_ROS(ICM_method):
                     print('Tiempo restante: ',self.config.time- (time.time()-t))
                 
                 #mapa_inicial,x=ICM.inicializar(x)
+            if self.iterations_flag:
+                print('Iterando para refinar los estados...')
+                self.mapa_viejo=y
+                self.positions=x
+                break
 
         graficar(x,y,self.odometria)
         self.disconnect_ros()
@@ -139,7 +149,7 @@ class ICM_ROS(ICM_method):
 
     def inicializar_online_process(self,y,xt):
         """
-        callback del servicio de ROS
+        callback del mensaje de ROS
         """
 
         #xtc=self.g(xt,u[:,t-1])  #actualizo cinemáticamente la pose
@@ -159,8 +169,68 @@ class ICM_ROS(ICM_method):
         xt=self.minimizar_x(z[:,0:2],y[:,c].T)
         return y,xt
 
+    def icm_iterations_service(self,request,response):
+        """
+        request['data']='start'
+        """
+        #print('Service called: ', request)
+        response['success']=True
+        response['message']='Working...'
+        self.iterations_flag=True
+        return True
+
+    def iterations_process_offline(self,mapa_viejo,x):
+        """
+        Callback service
+        """
+        
+        xt=copy(self.x0)
+        y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
+        self.mapa_obj.clear_obs()
+        z=filtrar_z(self.mediciones[:,0],self.config)  #filtro la primer observacion [dist ang x y] x #obs
+        odometria=self.odometria
+        Tf=x.shape[1] # revisar
+        #print('Cantidad de datos: ',Tf)
+        if z.shape[0]==0:
+            return mapa_viejo,x
+            #continue #si no hay observaciones pasar al siguiente periodo de muestreo
+        
+        zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
+        y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
+        #BUCLE TEMPORAL
+        for t in range(1,Tf):
+            z=filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
+            if z.shape[0]==0:
+                xt=(xt.reshape(3)+x[:,t+1])/2.0
+                x[:,t]=xt
+                continue #si no hay observaciones pasar al siguiente periodo de muestreo
+            
+            zt=tras_rot_z(x[:,t],z)  #rota y traslada las observaciones de acuerdo a la pose actual
+            y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
+            if t+1<Tf:
+                xt=self.minimizar_xn(z[:,0:2],y[:,c].T,x,t)
+            else:
+                xt=self.minimizar_x(z[:,0:2],y[:,c].T)
+
+            x[:,t]=xt
+        
+        #filtro ubicaciones estimadas
+        yy=self.mapa_obj.filtrar(y)
+        yy=yy[:,:self.mapa_obj.landmarks_actuales]
+        mapa_refinado=copy(yy)
+        return mapa_refinado,x
+
 if __name__=='__main__':
     config=ConfigICM('config_ros.yaml')
     ICM=ICM_ROS(config)
     ICM.inicializar_online()
+    if ICM.iterations_flag:
+        mapa_viejo=ICM.mapa_viejo
+        x=ICM.positions
+        for iteracionICM in range(config.N):
+            print('iteración ICM : ',iteracionICM+1)
+            mapa_refinado,x=ICM.iterations_process_offline(mapa_viejo,x) #$2
+            mapa_viejo=copy(mapa_refinado)
+
+        graficar(x,mapa_refinado,ICM.odometria)
 
