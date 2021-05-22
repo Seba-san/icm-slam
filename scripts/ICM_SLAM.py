@@ -137,12 +137,14 @@ class ICM_method():
         
         # First part
         x_ant=self.x_ant
-        odo=self.odometria[:,t-2:t]
+        odo=self.odometria[:,t-1:t+1]
         Rotador=Rota(x_ant[2][0])
         
+        #import pdb; pdb.set_trace() # $3 sacar esto
         ooo_ant=np.zeros((3,1))
         ooo_ant[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))\
                 -np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
+
         ooo_ant[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
         ooo_ant[2]=entrepi(ooo_ant[2])
 
@@ -201,7 +203,8 @@ class ICM_method():
 
         z=self.medicion_actual
         #x_ant=self.x_ant_opt# $2 ver
-        x_ant=self.xt
+        x_ant=self.xt.reshape((3,1))
+
         #u_ant=self.u_ant_opt# $2 ver
         #print(self.odometria)
         odo=self.odometria[:,-2:] # Los ultimos 2
@@ -211,6 +214,7 @@ class ICM_method():
         #gg=x.reshape((3,1))-self.g(x_ant,u_ant)
         #gg[2]=entrepi(gg[2])
 
+        #import pdb; pdb.set_trace() # $3 sacar esto
         hh=self.h(x,z)
         Rotador=Rota(x_ant[2][0])
         ooo=np.zeros((3,1))
@@ -524,14 +528,10 @@ class Mapa:
         -----------
     
         Entradas: mapa, mapa_referencia, obs
-        'Externas'
          - [2 x Lact] Mapa: Es una matriz con las posiciones 2D de todos árboles.
          - yy o mapa_referencia: Es el mapa de referencia, que NO se modifca.
          - [(x,y) x Nobs] obs: Lista de observaciones en coordenadas cartecianas.
            Nobs son la cantidad de observaciones filtradas (sin outliers). 
-         'Internas'
-         - [int] Lact: cantidad de árboles hasta el momento (Landmarks
-           activos/actuales)
 
         Salidas: mapa,c
         'Externas'
@@ -543,11 +543,6 @@ class Mapa:
            un árbol.
          - [int] Lact: cantidad de árboles actualizado.
 
-        Mapa es la estimación de los árboles que se tiene hasta el momento dentro de la iteracion ICM.
-        **yy** es la estimación de los árboles que se usará para realizar el etiquetado de las obs nuevas. 
-        En la iteracion 0 yy=mapa, pero en las iteraciones siguientes yy es el mapa final estimado en la iteración ICM
-        anterior.
-        
         #actualizo (o creo) ubicación de arboles observados
         """
         Lact=self.landmarks_actuales
@@ -579,10 +574,6 @@ class Mapa:
             #actualizo (o creo) ubicación de arboles observados
             for i in range(Lact):
                 if len(c[c==i])>0:
-                    #mapa[:,i]=np.sum(zt[c==i,2:4],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
-                    #        +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]+len(c[c==i]))
-    
-                    #                obs o zt?
                     mapa[:,i]=np.sum(obs[c==i],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
                             +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]+len(c[c==i]))
                     

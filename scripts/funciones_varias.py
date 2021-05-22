@@ -51,7 +51,26 @@ def graficar(x,yy,odometria,N=0):
     plt.plot(odometria[0],odometria[1], 'g')
     plt.plot(yy[0],yy[1], 'b*')
     plt.axis('equal')
+    #plt.pause(0.1)
     plt.show()
+
+class graficar2:
+    def __init__(self):
+        pass
+    
+    def data(self,x,yy,odometria,N=0):
+        plt.figure(N)
+        plt.clf()
+        plt.plot(x[0],x[1], 'b')
+        plt.plot(odometria[0],odometria[1], 'g')
+        plt.plot(yy[0],yy[1], 'b*')
+        plt.axis('equal')
+        plt.pause(0.01)
+
+    def show(self):
+        print('Cerrar img para continuar')
+        plt.show()
+
 
 def graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios):
     

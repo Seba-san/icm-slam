@@ -1,7 +1,7 @@
 import numpy as np
 import roslibpy # Conectarse a una red ROS
 from ICM_SLAM import ICM_method,ConfigICM,Mapa, filtrar_z,tras_rot_z
-from ICM_SLAM import graficar
+from ICM_SLAM import graficar,graficar_cambio, calc_cambio,graficar2
 from copy import deepcopy as copy
 import time
 import math
@@ -12,7 +12,8 @@ class ICM_ROS(ICM_method):
         ICM_method.__init__(self,config)
         self.new_data=False
         self.odometria=copy(self.x0)
-        self.mediciones=np.zeros((180,1))# depende de la configuracion del sensor
+        #self.mediciones=np.zeros((180,1))# depende de la configuracion del sensor
+        self.mediciones=np.array([])
     
         self.iterations_flag=False #
         self.seq0=0
@@ -80,8 +81,11 @@ class ICM_ROS(ICM_method):
         #print('###!! z shape : ',z.shape)
         #print('###!! z  : ',z)
         
-        self.mediciones=np.concatenate((self.mediciones,z),axis=1)
-
+        #self.mediciones=np.concatenate((self.mediciones,z),axis=1)
+        if not self.mediciones.any():
+            self.mediciones=z
+        else:
+            self.mediciones=np.hstack((self.mediciones,z))
         #self.new_data=True
         #print('##!! Seq: ',self.seq)
 
@@ -124,6 +128,8 @@ class ICM_ROS(ICM_method):
         self.connect_ros()
         t=time.time()
         k=10; # Intervalo de tiempo en segundos para mostrar mensaje.
+        
+        dd=graficar2()
         while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
             if self.new_data:
                 self.new_data=False
@@ -133,8 +139,9 @@ class ICM_ROS(ICM_method):
                 x=np.concatenate((x,xt),axis=1)
                 if (time.time()-t)>k:
                     k=k+10
-                    print('Tiempo restante: ',self.config.time- (time.time()-t))
+                    print('Tiempo restante: ',self.config.time-(time.time()-t))
                 
+                dd.data(x,y,self.odometria)
                 #mapa_inicial,x=ICM.inicializar(x)
             if self.iterations_flag:
                 print('Iterando para refinar los estados...')
@@ -142,9 +149,14 @@ class ICM_ROS(ICM_method):
                 self.positions=x
                 break
 
-        graficar(x,y,self.odometria)
+            
+
+        dd.show()
+        #graficar(x,y,self.odometria)
         self.disconnect_ros()
 
+        self.mapa_viejo=y
+        self.positions=copy(x)
         #self.itererar(mapa_viejo,x)
 
     def inicializar_online_process(self,y,xt):
@@ -156,8 +168,8 @@ class ICM_ROS(ICM_method):
         xtc=self.odometria[:,-1].reshape((3,1))
         z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
         if z.shape[0]==0:
-            #print('###!! Sin mediciones, abort')
-            xt=xtc
+            print('###!! Sin mediciones, abort')
+            xt=xtc+0.0
             #x[:,t]=xt.T
             return y,xt
             #continue   #si no hay observaciones pasar al siguiente periodo de muestreo
@@ -189,7 +201,7 @@ class ICM_ROS(ICM_method):
         self.mapa_obj.clear_obs()
         z=filtrar_z(self.mediciones[:,0],self.config)  #filtro la primer observacion [dist ang x y] x #obs
         odometria=self.odometria
-        Tf=x.shape[1] # revisar
+        Tf=x.shape[1] 
         #print('Cantidad de datos: ',Tf)
         if z.shape[0]==0:
             return mapa_viejo,x
@@ -198,22 +210,28 @@ class ICM_ROS(ICM_method):
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
         y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
         #BUCLE TEMPORAL
+        #dd=graficar2()#$5
         for t in range(1,Tf):
             z=filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
             if z.shape[0]==0:
                 xt=(xt.reshape(3)+x[:,t+1])/2.0
-                x[:,t]=xt
+                x[:,t]=copy(xt)
+                print('skip por falta de obs')
                 continue #si no hay observaciones pasar al siguiente periodo de muestreo
             
+            #import pdb; pdb.set_trace() # $3 sacar esto
             zt=tras_rot_z(x[:,t],z)  #rota y traslada las observaciones de acuerdo a la pose actual
             y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
             if t+1<Tf:
                 xt=self.minimizar_xn(z[:,0:2],y[:,c].T,x,t)
             else:
+
+                #import pdb; pdb.set_trace() # $3 sacar esto
+                self.xt=copy(x[:,t])
                 xt=self.minimizar_x(z[:,0:2],y[:,c].T)
 
-            x[:,t]=xt
-        
+            x[:,t]=copy(xt)
+            #dd.data(x,y,self.odometria)#$5
         #filtro ubicaciones estimadas
         yy=self.mapa_obj.filtrar(y)
         yy=yy[:,:self.mapa_obj.landmarks_actuales]
@@ -224,13 +242,29 @@ if __name__=='__main__':
     config=ConfigICM('config_ros.yaml')
     ICM=ICM_ROS(config)
     ICM.inicializar_online()
+    ICM.iterations_flag=True # Borrar esto
     if ICM.iterations_flag:
-        mapa_viejo=ICM.mapa_viejo
-        x=ICM.positions
+        mapa_viejo=copy(ICM.mapa_viejo)
+        x=copy(ICM.positions)
+
+
+        cambios_minimos=np.zeros(config.N)
+        cambios_maximos=np.zeros(config.N)
+        cambios_medios=np.zeros(config.N)
+        
+        dd=graficar2()
         for iteracionICM in range(config.N):
             print('iteración ICM : ',iteracionICM+1)
             mapa_refinado,x=ICM.iterations_process_offline(mapa_viejo,x) #$2
+            print('Correccion: ', np.linalg.norm(x-ICM.positions,axis=1).sum())
+            dd.data(x,mapa_refinado,ICM.odometria,N=11)
+
+            #CALCULO DE CAMBIOS
+            [cambio_minimo,cambio_maximo,cambio_medio]=calc_cambio(mapa_refinado,mapa_viejo)
+            cambios_minimos[iteracionICM]=cambio_minimo
+            cambios_maximos[iteracionICM]=cambio_maximo
+            cambios_medios[iteracionICM]=cambio_medio
             mapa_viejo=copy(mapa_refinado)
 
         graficar(x,mapa_refinado,ICM.odometria)
-
+        graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios)
