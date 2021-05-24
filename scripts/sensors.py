@@ -11,7 +11,7 @@ class ICM_ROS(ICM_method):
     def __init__(self,config):
         ICM_method.__init__(self,config)
         self.new_data=False
-        self.odometria=copy(self.x0)
+        self.odometria=np.array([])
         #self.mediciones=np.zeros((180,1))# depende de la configuracion del sensor
         self.mediciones=np.array([])
     
@@ -49,7 +49,7 @@ class ICM_ROS(ICM_method):
                client.terminate()
         """
     def disconnect_ros(self):
-        print('No se puedo conectar a la red ROS')
+        print('modulo desconectado de la red ROS')
         self.client.terminate()
 
  
@@ -59,12 +59,6 @@ class ICM_ROS(ICM_method):
         header, intensities.
         header: stamp, frame_id,seq
         """
-        #print('Heard talking: ')
-       # s=msg['header']['stamp']['secs']
-       # ns=msg['header']['stamp']['nsecs']
-       # timestamp=float(s+ns*10**-9)
-       # stamp=msg['header']['seq']
-       # print('laser seq: ',stamp)
         if self.seq0==0:
             self.seq0=msg['header']['seq']
         
@@ -75,19 +69,9 @@ class ICM_ROS(ICM_method):
         z=z.T[0:-1:4] # subsampling from 720 to 180
         z[np.isnan(z.astype('float'))]=self.config.rango_laser_max # clear None value
         z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
-        #if self.mediciones==[]:
-        #    self.mediciones=z
-        #else:
-        #print('###!! z shape : ',z.shape)
-        #print('###!! z  : ',z)
         
-        #self.mediciones=np.concatenate((self.mediciones,z),axis=1)
-        if not self.mediciones.any():
-            self.mediciones=z
-        else:
-            self.mediciones=np.hstack((self.mediciones,z))
-        #self.new_data=True
-        #print('##!! Seq: ',self.seq)
+        self.z=z
+
 
     def callback_odometry(self,msg):
         """
@@ -95,7 +79,9 @@ class ICM_ROS(ICM_method):
         'pose': {'pose': {'position': {'y':, 'x':, 'z':}, 'orientation': {'y':, 'x':, 'z':, 'w':}},'covariance':, 'child_frame_id':}
         """
 
-        if self.seq>self.odometria.shape[1] and self.seq0>0: # same amount of odometry with laser items
+        if  self.seq0>0: # same amount of  odometry and laser items
+           
+            #self.seq>self.odometria.shape[1]
             msg=msg['pose']['pose']
             #print('#### ',msg['position'])
             x=msg['position']['x']
@@ -110,9 +96,25 @@ class ICM_ROS(ICM_method):
             t4 = +1.0 - 2.0 * (fi_y **2 + fi_z **2)
             yaw_z = math.atan2(t3, t4)
             odo=np.array([[x,y,yaw_z]])
-            self.odometria=np.concatenate((self.odometria,odo.T),axis=1)
+            
+            if not self.odometria.any():
+                self.odometria=odo.T
+                self.x0=odo.T
+            else:
+                self.odometria=np.hstack((self.odometria,odo.T))
+            
+            # Mediciones con frecuencia mayor a la odometria.
+            
+            #import pdb; pdb.set_trace() # $3 sacar esto
+            if not self.mediciones.any():
+                if self.z.shape[0]==180:
+                    self.mediciones=self.z
+            else:
+                 self.mediciones=np.hstack((self.mediciones,self.z))
 
-            self.new_data=True
+            #self.odometria=np.concatenate((self.odometria,odo.T),axis=1)
+            if self.odometria.shape[1]>1:
+                self.new_data=True
             #print(self.odometria)
             #print('odometry shape: ',self.odometria.shape[1])
             #print('##!! Seq: ',self.seq)
@@ -120,7 +122,7 @@ class ICM_ROS(ICM_method):
     def inicializar_online(self):
 
         xt=copy(self.x0)
-        x=copy(self.x0)
+        x=np.array([])
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
         self.mapa_obj=Mapa(config)
 
@@ -133,9 +135,12 @@ class ICM_ROS(ICM_method):
         while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
             if self.new_data:
                 self.new_data=False
-                y,xt=self.inicializar_online_process(y,xt)
+                y,xt=self.inicializar_online_process(y)
                 xt=np.reshape(xt,(3,1))
                 #print(xt)
+                if not x.any():
+                    x=copy(self.x0)
+
                 x=np.concatenate((x,xt),axis=1)
                 if (time.time()-t)>k:
                     k=k+10
@@ -159,7 +164,7 @@ class ICM_ROS(ICM_method):
         self.positions=copy(x)
         #self.itererar(mapa_viejo,x)
 
-    def inicializar_online_process(self,y,xt):
+    def inicializar_online_process(self,y):
         """
         callback del mensaje de ROS
         """
@@ -238,6 +243,18 @@ class ICM_ROS(ICM_method):
         mapa_refinado=copy(yy)
         return mapa_refinado,x
 
+    def test_continuidad(self,x,xk):
+        dt=0.1
+        vel_max=0.2
+        vel=(x[0:2]-xk[0:2])/dt
+        vel_mag=np.linalg.norm(vel)
+        c=vel_mag/(vel_max)
+        if c>2: # evitar overflow
+            return 500
+
+        f=np.e**(c**2)-1
+        return f
+
 if __name__=='__main__':
     config=ConfigICM('config_ros.yaml')
     ICM=ICM_ROS(config)
@@ -268,3 +285,4 @@ if __name__=='__main__':
 
         graficar(x,mapa_refinado,ICM.odometria)
         graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios)
+        import pdb; pdb.set_trace() # $3 sacar esto

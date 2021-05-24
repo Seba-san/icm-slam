@@ -100,6 +100,8 @@ class ICM_method():
         self.medicion_actual=medicion_actual
         self.mapa_visto=mapa_visto
         x=fmin(self.fun_xn,(self.x_ant+self.x_pos)/2.0,xtol=0.001,disp=0)
+
+        #import pdb; pdb.set_trace() # $3 sacar esto
         return x
 
     def fun_xn(self,x):
@@ -140,7 +142,7 @@ class ICM_method():
         odo=self.odometria[:,t-1:t+1]
         Rotador=Rota(x_ant[2][0])
         
-        #import pdb; pdb.set_trace() # $3 sacar esto
+
         ooo_ant=np.zeros((3,1))
         ooo_ant[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))\
                 -np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
@@ -154,6 +156,12 @@ class ICM_method():
         f=self.config.cte_odom*np.matmul(ooo_pos.T,ooo_pos)\
            +hh\
            +self.config.cte_odom*np.matmul(ooo_ant.T,ooo_ant)
+
+        f=f+self.test_continuidad(x,x_ant)+self.test_continuidad(x,x_pos)
+        
+       # if t==1000: 
+       #     import pdb; pdb.set_trace() # $3 sacar esto
+
         return f
 
     def minimizar_x(self,medicion_actual,mapa_visto):
@@ -235,6 +243,7 @@ class ICM_method():
         """
 
         f=hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        f=f+self.test_continuidad(x,x_ant)
         return f
 
     def load_data(self,mapa_obj,mediciones,u,odometria,x0=''):

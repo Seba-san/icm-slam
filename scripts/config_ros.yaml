@@ -4,7 +4,7 @@ D:
     L: 1000  
     Q: [1,1]
     R: [1,1,1] 
-    cte_odom: 0.5  
+    cte_odom: 10  
     cota: 100.0  
     dist_thr: 1.5  
     dist_thr_obs: 1  
@@ -15,6 +15,6 @@ D:
     topic_odometry: '/pioneer2dx/ground_truth/odom'
     topic_odometry_msg: 'nav_msgs/Odometry'
     file: 'data_IJAC2018.mat'
-    time: 60.0
+    time: 200.0
     sensors: 'revisar'
 
