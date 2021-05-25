@@ -5,7 +5,9 @@ from ICM_SLAM import graficar,graficar_cambio, calc_cambio,graficar2
 from copy import deepcopy as copy
 import time
 import math
+from funciones_varias import *
 
+from scipy.optimize import fmin
 
 class ICM_ROS(ICM_method):
     def __init__(self,config):
@@ -13,6 +15,7 @@ class ICM_ROS(ICM_method):
         self.new_data=False
         self.odometria=np.array([])
         self.mediciones=np.array([])
+        self.u=np.array([])
     
         self.iterations_flag=False
         self.seq0=0
@@ -63,11 +66,11 @@ class ICM_ROS(ICM_method):
 
         #if self.seq<self.mediciones.shape[1] and self.seq0>0: # same amount of odometry with laser items
         z=np.array([msg['ranges']],dtype=np.float)
-        z=z.T[0:-1:4] # subsampling from 720 to 180
-        z[np.isnan(z.astype('float'))]=self.config.rango_laser_max # clear None value
+        #z=z.T[0:-1:4] # subsampling from 720 to 180
+        #z[np.isnan(z.astype('float'))]=self.config.rango_laser_max # clear None value
         z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
         
-        self.z=z
+        self.z=z.T
 
     def callback_odometry(self,msg):
         """
@@ -78,6 +81,7 @@ class ICM_ROS(ICM_method):
         if  self.seq0>0: # same amount of  odometry and laser items
            
             #self.seq>self.odometria.shape[1]
+            msg_=copy(msg)
             msg=msg['pose']['pose']
             x=msg['position']['x']
             y=msg['position']['y']
@@ -91,22 +95,28 @@ class ICM_ROS(ICM_method):
             t4 = +1.0 - 2.0 * (fi_y **2 + fi_z **2)
             yaw_z = math.atan2(t3, t4)
             odo=np.array([[x,y,yaw_z]])
-            
+
+            vx=msg_['twist']['twist']['linear']['x']
+            vw=msg_['twist']['twist']['angular']['z']
+            vel=np.array([[vw,vx]]).T
+
             if not self.odometria.any():
                 self.odometria=odo.T
                 self.x0=odo.T
+                self.u=vel
             else:
                 self.odometria=np.hstack((self.odometria,odo.T))
+                self.u=np.hstack((self.u,vel))
             
             # Mediciones con frecuencia mayor a la odometria.
             
             #import pdb; pdb.set_trace() # $3 sacar esto
             if not self.mediciones.any():
-                if self.z.shape[0]==180:
+                #if self.z.shape[0]==180:
+                if self.z.shape[0]==181:
                     self.mediciones=self.z
             else:
                  self.mediciones=np.hstack((self.mediciones,self.z))
-                 #self.odometria=np.concatenate((self.odometria,odo.T),axis=1)
 
             if self.odometria.shape[1]>1:
                 self.new_data=True
@@ -126,18 +136,19 @@ class ICM_ROS(ICM_method):
         while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
             if self.new_data:
                 self.new_data=False
-                y,xt=self.inicializar_online_process(y)
+                y,xt=self.inicializar_online_process(y,xt)
+                #xt=xt.T
                 xt=np.reshape(xt,(3,1))
                 if not x.any():
                     x=copy(self.x0)
 
+                #import pdb; pdb.set_trace() # $3 sacar esto
                 x=np.concatenate((x,xt),axis=1)
                 if (time.time()-t)>k:
                     k=k+10
                     print('Tiempo restante: ',self.config.time-(time.time()-t))
                 
                 dd.data(x,y,self.odometria)#$5
-                #mapa_inicial,x=ICM.inicializar(x)
             if self.iterations_flag:
                 print('Iterando para refinar los estados...')
                 self.mapa_viejo=y
@@ -145,18 +156,18 @@ class ICM_ROS(ICM_method):
                 break
 
         dd.show()#$5
-        #graficar(x,y,self.odometria)
         self.disconnect_ros()
 
         self.mapa_viejo=y
         self.positions=copy(x)
 
-    def inicializar_online_process(self,y):
+    def inicializar_online_process(self,y,xt):
         """
         callback del mensaje de ROS
         """
-        #xtc=self.g(xt,u[:,t-1])  #actualizo cinemáticamente la pose
-        xtc=self.odometria[:,-1].reshape((3,1))
+        #import pdb; pdb.set_trace() # $3 sacar esto
+        xtc=self.g(xt,self.u[:,-2])  #actualizo cinemáticamente la pose
+        #xtc=self.odometria[:,-1].reshape((3,1))
         z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
         if z.shape[0]==0:
             print('###!! Sin mediciones, abort')
@@ -192,6 +203,7 @@ class ICM_ROS(ICM_method):
         odometria=self.odometria
         Tf=x.shape[1] 
         if z.shape[0]==0:
+            print("## Sin mediciones 2")
             return mapa_viejo,x
             #continue #si no hay observaciones pasar al siguiente periodo de muestreo
         
@@ -207,7 +219,7 @@ class ICM_ROS(ICM_method):
                 print('skip por falta de obs')
                 continue #si no hay observaciones pasar al siguiente periodo de muestreo
             
-            import pdb; pdb.set_trace() # $3 sacar esto
+            #import pdb; pdb.set_trace() # $3 sacar esto
             zt=tras_rot_z(x[:,t],z)  #rota y traslada las observaciones de acuerdo a la pose actual
             y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
             if t+1<Tf:
@@ -237,10 +249,79 @@ class ICM_ROS(ICM_method):
         f=np.e**(c**2)-1
         return f
 
+    def g(self,xt,ut):
+
+        xt=xt.reshape((3,1))
+        ut=ut.reshape((2,1))
+        S=np.array([[(np.cos(xt[2]))[0],0.0],[np.sin(xt[2])[0],0.0],[0.0,1.0]])
+        xt_actualizado=xt+self.config.deltat*np.matmul(S,ut).reshape((3,1))
+        return xt_actualizado.reshape((3,1))
+
+    def minimizar_xn(self,medicion_actual,mapa_visto,x,t):
+        self.x_ant=x[:,t-1].reshape((3,1))
+        self.x_pos=x[:,t+1].reshape((3,1))
+       
+        self.xt=x[:,t].reshape((3,1))
+        self.t=t
+        self.medicion_actual=medicion_actual
+        self.mapa_visto=mapa_visto
+        x=fmin(self.fun_xn,(self.x_ant+self.x_pos)/2.0,xtol=0.001,disp=0)
+
+        #import pdb; pdb.set_trace() # $3 sacar esto
+        return x
+
+
+    def minimizar_x(self,medicion_actual,mapa_visto):
+        self.medicion_actual=medicion_actual
+        self.mapa_visto=mapa_visto
+        x0=self.g(self.xt,self.u[:,-2])
+        x=fmin(self.fun_x,x0,xtol=0.001,disp=0)
+        return x
+
+    def fun_x(self,x):
+        # revisar
+        z=self.medicion_actual
+        x_ant=self.xt
+        u_ant=self.u[:,-2]
+        odo=self.odometria[:,-2:]
+
+        gg=x.reshape((3,1))-self.g(x_ant,u_ant)
+        gg[2]=entrepi(gg[2])
+        hh=self.h(x,z)
+        Rotador=Rota(x_ant[2][0])
+        ooo=np.zeros((3,1))
+        ooo[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))-np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
+        ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
+        ooo[2]=entrepi(ooo[2])
+        f=np.matmul(np.matmul(gg.T,self.config.R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        return f
+
+    def fun_xn(self,x):
+        t=self.t
+        z=self.medicion_actual
+        x_pos=self.x_pos
+        u_act=self.u[:,t-1:t+1]
+        odo=self.odometria[:,t-1:t+2]
+        
+        f=fun_x(x)
+        x=x.reshape((3,1))
+        gg=self.g(x,u_act)-x_pos
+        gg[2]=entrepi(gg[2])
+        Rotador=Rota(x[2][0])
+        ooo=np.zeros((3,1))
+        ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))-np.matmul(Rotador,x_pos[0:2]-x[0:2])
+        ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
+        ooo[2]=entrepi(ooo[2])
+        f=f+np.matmul(np.matmul(gg.T,self.config.R),gg)+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        return f
+
 if __name__=='__main__':
+    
+    # ========= Principal line
     config=ConfigICM('config_ros.yaml')
     ICM=ICM_ROS(config)
     ICM.inicializar_online()
+    # ========= Principal line
     ICM.iterations_flag=True # Borrar esto
     if ICM.iterations_flag:
         mapa_viejo=copy(ICM.mapa_viejo)
@@ -253,7 +334,9 @@ if __name__=='__main__':
         dd=graficar2()#$5
         for iteracionICM in range(config.N):
             print('iteración ICM : ',iteracionICM+1)
+            # ========= Principal line
             mapa_refinado,x=ICM.iterations_process_offline(mapa_viejo,x) #$2
+            # ========= Principal line
             print('Correccion: ', np.linalg.norm(x-ICM.positions,axis=1).sum())
             dd.data(x,mapa_refinado,ICM.odometria,N=11)#$5
 

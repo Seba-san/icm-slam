@@ -1,12 +1,12 @@
 D:
-    N: 100
+    N: 30
     deltat: 0.1
     L: 1000  
     Q: [1,1]
     R: [1,1,1] 
-    cte_odom: 10  
-    cota: 150.0  
-    dist_thr: 1.5  
+    cte_odom: 1  
+    cota: 300.0  
+    dist_thr: 1  
     dist_thr_obs: 1  
     rango_laser_max: 10.0  
     radio: 0.137
@@ -15,6 +15,6 @@ D:
     topic_odometry: '/pioneer2dx/ground_truth/odom'
     topic_odometry_msg: 'nav_msgs/Odometry'
     file: 'data_IJAC2018.mat'
-    time: 60.0
+    time: 500.0
     sensors: 'revisar'
 
