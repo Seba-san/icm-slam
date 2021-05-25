@@ -625,6 +625,7 @@ class Mapa:
        ind=np.where(cant_obs_i<self.cota)[0]  #indices de arboles poco observados
        if ind.size>0:  #si hay arboles poco observados
            Lact=Lact-ind.size  #reduzco la cantidad de arboles observados hasta el momento
+           # Cambiar esto, poner la media en vez de una cota estática.
            ind2=np.where(cant_obs_i>=self.cota)[0] #indices de arboles observados muchas veces
            mapa=mapa[:,ind2] #elimino las posiciones estimadas de los arboles vistos pocas veces
            np.concatenate((mapa,np.zeros((2,len(ind)))),axis=1)  #le devuelvo a y su dimension original completando con ceros
