@@ -30,17 +30,6 @@ class ROS_bridge:
         self.odometry= roslibpy.Topic(self.client, topic_odometry,
                 topic_odometry_msg)
 
-        
-        #while client.is_connected:
-        #    talker.publish(roslibpy.Message({'data': 'Hello World!'}))
-        #    print('Sending message...')
-        #    time.sleep(1)
-        
-        #talker.unadvertise()
-        
-        #client.terminate()
-
-
     def disconnect_ros(self):
         print('modulo desconectado de la red ROS')
         self.client.terminate()
@@ -81,8 +70,8 @@ def mat2odometry(odo,vel):
     D['header']={
     'frame_id': "odom_groundtruth"}
     D['child_frame_id']= "base_link"
-    roll=0
-    pitch=0
+    roll=0.0
+    pitch=0.0
     yaw=odo[2]
     qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
     qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
@@ -139,17 +128,21 @@ if __name__=='__main__':
     N=z.shape[1]
     headerLaser=Header()
     headerOdometry=Header()
-
+    estate=0 
     #import pdb; pdb.set_trace() # $3 sacar esto
     for t in range(N):
         D=mat2laser_scann(z[:,t])
         D=headerLaser.new_message(D)
         ros.lidar.publish(roslibpy.Message(D))
-        time.sleep(0.05)
+        #time.sleep(0.04)
         D=mat2odometry(odometria[:,t],u[:,t])
         D=headerOdometry.new_message(D)
         ros.odometry.publish(roslibpy.Message(D))
-        time.sleep(0.05)
+        time.sleep(0.1)
+        if float(t/N)>estate:
+            print(estate*100,'%')
+            estate=estate+0.1
+
 
 
     ros.disconnect_ros()

@@ -95,14 +95,17 @@ class ICM_ROS(ICM_method):
             t4 = +1.0 - 2.0 * (fi_y **2 + fi_z **2)
             yaw_z = math.atan2(t3, t4)
             odo=np.array([[x,y,yaw_z]])
+            #odo=np.array([[x,y,fi_w]])
 
             vx=msg_['twist']['twist']['linear']['x']
             vw=msg_['twist']['twist']['angular']['z']
-            vel=np.array([[vw,vx]]).T
+            vel=np.array([[vx,vw]]).T
+            #print('odo',odo)
+            #print('vel:',vel)
 
             if not self.odometria.any():
                 self.odometria=odo.T
-                self.x0=odo.T
+                #self.x0=odo.T
                 self.u=vel
             else:
                 self.odometria=np.hstack((self.odometria,odo.T))
@@ -118,24 +121,33 @@ class ICM_ROS(ICM_method):
             else:
                  self.mediciones=np.hstack((self.mediciones,self.z))
 
-            if self.odometria.shape[1]>1:
-                self.new_data=True
+            if self.odometria.shape[1]>0:
+                self.new_data=self.new_data+1
+            
+            #self.new_data=self.new_data+1
         
     def inicializar_online(self):
 
         xt=copy(self.x0)
+        x=copy(self.x0)
         x=np.array([])
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
         self.mapa_obj=Mapa(config)
 
         self.connect_ros()
-        t=time.time()
         k=10; # Intervalo de tiempo en segundos para mostrar mensaje.
-        
+        while not self.new_data>0:
+            pass
+
+        t=time.time()
+        self.new_data=False
+        z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro la primer observacion [dist ang x y] x #obs
+        zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
+        y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
         dd=graficar2()#$5
         while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
-            if self.new_data:
-                self.new_data=False
+            if self.new_data>0:
+                self.new_data=self.new_data-1
                 y,xt=self.inicializar_online_process(y,xt)
                 #xt=xt.T
                 xt=np.reshape(xt,(3,1))
@@ -144,6 +156,13 @@ class ICM_ROS(ICM_method):
 
                 #import pdb; pdb.set_trace() # $3 sacar esto
                 x=np.concatenate((x,xt),axis=1)
+                #print('pose: ', x[:,-1])#$1
+                #if (x.shape[1]-self.odometria.shape[1]!=0 ):
+                if self.new_data>0:
+                    print('Comparacion: ',x.shape[1]-self.odometria.shape[1])
+                    print('Secuencia: ',self.seq)
+                    print('Data: ',self.new_data)
+                
                 if (time.time()-t)>k:
                     k=k+10
                     print('Tiempo restante: ',self.config.time-(time.time()-t))
@@ -170,9 +189,9 @@ class ICM_ROS(ICM_method):
         #xtc=self.odometria[:,-1].reshape((3,1))
         z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
         if z.shape[0]==0:
-            print('###!! Sin mediciones, abort')
+            print('###0 !! Sin mediciones, abort')
             xt=xtc+0.0
-            return y,xt
+            return y,xt.T
             #continue   #si no hay observaciones pasar al siguiente periodo de muestreo
         
         zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
@@ -226,7 +245,7 @@ class ICM_ROS(ICM_method):
                 xt=self.minimizar_xn(z[:,0:2],y[:,c].T,x,t)
             else:
                 #import pdb; pdb.set_trace() # $3 sacar esto
-                self.xt=copy(x[:,t])
+                self.xt=(x[:,t]+0.0).reshape((3,1))
                 xt=self.minimizar_x(z[:,0:2],y[:,c].T)
 
             x[:,t]=copy(xt)
@@ -276,6 +295,7 @@ class ICM_ROS(ICM_method):
         self.mapa_visto=mapa_visto
         x0=self.g(self.xt,self.u[:,-2])
         x=fmin(self.fun_x,x0,xtol=0.001,disp=0)
+        #import pdb; pdb.set_trace() # $3 sacar esto
         return x
 
     def fun_x(self,x):
@@ -303,16 +323,32 @@ class ICM_ROS(ICM_method):
         u_act=self.u[:,t-1:t+1]
         odo=self.odometria[:,t-1:t+2]
         
-        f=fun_x(x)
+        #f=self.fun_x(x)
         x=x.reshape((3,1))
-        gg=self.g(x,u_act)-x_pos
+        gg=self.g(x,u_act[:,1])-x_pos
         gg[2]=entrepi(gg[2])
         Rotador=Rota(x[2][0])
         ooo=np.zeros((3,1))
         ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))-np.matmul(Rotador,x_pos[0:2]-x[0:2])
         ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
         ooo[2]=entrepi(ooo[2])
-        f=f+np.matmul(np.matmul(gg.T,self.config.R),gg)+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        f=np.matmul(np.matmul(gg.T,self.config.R),gg)+self.config.cte_odom*np.matmul(ooo.T,ooo)
+
+
+        x_ant=self.xt
+        u_ant=u_act[:,0]
+        #odo=self.odometria[:,-2:]
+
+        gg=x.reshape((3,1))-self.g(x_ant,u_ant)
+        gg[2]=entrepi(gg[2])
+        hh=self.h(x,z)
+        Rotador=Rota(x_ant[2][0])
+        ooo=np.zeros((3,1))
+        ooo[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))-np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
+        ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
+        ooo[2]=entrepi(ooo[2])
+        f=f+np.matmul(np.matmul(gg.T,self.config.R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
+
         return f
 
 if __name__=='__main__':
@@ -323,6 +359,7 @@ if __name__=='__main__':
     ICM.inicializar_online()
     # ========= Principal line
     ICM.iterations_flag=True # Borrar esto
+    import pdb; pdb.set_trace() # $3 sacar esto
     if ICM.iterations_flag:
         mapa_viejo=copy(ICM.mapa_viejo)
         x=copy(ICM.positions)

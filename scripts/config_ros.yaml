@@ -1,13 +1,13 @@
 D:
     N: 30
     deltat: 0.1
-    L: 1000  
+    L: 2000  
     Q: [1,1]
     R: [1,1,1] 
-    cte_odom: 1  
+    cte_odom: 1.0  
     cota: 300.0  
-    dist_thr: 1  
-    dist_thr_obs: 1  
+    dist_thr: 1.0  
+    dist_thr_obs: 1.0  
     rango_laser_max: 10.0  
     radio: 0.137
     topic_laser: '/pioneer2dx/laser/scan_Lidar_horizontal'
@@ -15,6 +15,6 @@ D:
     topic_odometry: '/pioneer2dx/ground_truth/odom'
     topic_odometry_msg: 'nav_msgs/Odometry'
     file: 'data_IJAC2018.mat'
-    time: 500.0
+    time: 300.0
     sensors: 'revisar'
 

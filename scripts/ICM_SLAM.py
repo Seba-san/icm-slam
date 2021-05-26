@@ -583,6 +583,11 @@ class Mapa:
             #actualizo (o creo) ubicación de arboles observados
             for i in range(Lact):
                 if len(c[c==i])>0:
+
+                    #import pdb; pdb.set_trace() # $3 sacar esto
+                    #mapa[:,i]=np.sum(zt[c==i,2:4],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
+                    #        +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]+len(c[c==i]))
+                    
                     mapa[:,i]=np.sum(obs[c==i],axis=0)/(cant_obs_i[i]+len(c[c==i]))\
                             +mapa[:,i]*cant_obs_i[i]/(cant_obs_i[i]+len(c[c==i]))
                     
@@ -590,6 +595,8 @@ class Mapa:
 
         self.landmarks_actuales=Lact
         self.cant_obs_i=cant_obs_i
+        #print('Lact: ',Lact)
+        #print('Cant_obs: ',cant_obs_i[:Lact])
     
         return mapa,c
 
@@ -600,7 +607,7 @@ class Mapa:
        
        Se filtra el mapa, eliminando landmarks poco observados y unificando
        landmarks cercanos. 
-       
+     #  
        Parámetros
        ----------
     
