@@ -21,6 +21,9 @@ class ICM_ROS(ICM_method):
         self.seq0=0
         self.seq=0
 
+        self.laser=0
+        self.odome=0
+
     def connect_ros(self):
         
         self.client = roslibpy.Ros(host='localhost', port=9090)
@@ -42,13 +45,6 @@ class ICM_ROS(ICM_method):
         service = roslibpy.Service(self.client, '/icm_slam/iterative_flag','std_srvs/SetBool')
         service.advertise(self.icm_iterations_service)
          
-        """
-        try:
-               while True:
-                   pass
-        except KeyboardInterrupt:
-               client.terminate()
-        """
     def disconnect_ros(self):
         print('modulo desconectado de la red ROS')
         self.client.terminate()
@@ -59,6 +55,7 @@ class ICM_ROS(ICM_method):
         header, intensities.
         header: stamp, frame_id,seq
         """
+        #import pdb; pdb.set_trace() # $3 sacar esto
         if self.seq0==0:
             self.seq0=msg['header']['seq']
         
@@ -71,6 +68,8 @@ class ICM_ROS(ICM_method):
         z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
         
         self.z=z.T
+        self.laser=self.laser+1
+        print('laser: ',self.laser)
 
     def callback_odometry(self,msg):
         """
@@ -78,6 +77,7 @@ class ICM_ROS(ICM_method):
         'pose': {'pose': {'position': {'y':, 'x':, 'z':}, 'orientation': {'y':, 'x':, 'z':, 'w':}},'covariance':, 'child_frame_id':}
         """
 
+        #import pdb; pdb.set_trace() # $3 sacar esto
         if  self.seq0>0: # same amount of  odometry and laser items
            
             #self.seq>self.odometria.shape[1]
@@ -121,11 +121,14 @@ class ICM_ROS(ICM_method):
             else:
                  self.mediciones=np.hstack((self.mediciones,self.z))
 
-            if self.odometria.shape[1]>0:
+            if self.odometria.shape[1]>1:
                 self.new_data=self.new_data+1
             
             #self.new_data=self.new_data+1
         
+        self.odome=self.odome+1
+        print('odommetria: ',self.odome)
+
     def inicializar_online(self):
 
         xt=copy(self.x0)
@@ -139,6 +142,7 @@ class ICM_ROS(ICM_method):
         while not self.new_data>0:
             pass
 
+        #import pdb; pdb.set_trace() # $3 sacar esto
         t=time.time()
         self.new_data=False
         z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro la primer observacion [dist ang x y] x #obs
