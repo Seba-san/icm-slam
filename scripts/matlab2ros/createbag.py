@@ -109,12 +109,15 @@ class Header:
         self.seq=0
 
     def new_message(self,D):
+        """
+        Actualiza secuencia y timestamp
+        """
         ts=0.1
-        self.seq=self.seq+1
         s=self.seq*ts
         D['header']['seq']= self.seq
         D['header']['stamp']={'secs': int(s),
         'nsecs': int((s-int(s))*10**9)}
+        self.seq=self.seq+1
         return D
 
 if __name__=='__main__':

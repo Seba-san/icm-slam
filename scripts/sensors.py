@@ -8,14 +8,47 @@ import math
 from funciones_varias import *
 
 from scipy.optimize import fmin
+import sys
+
+class Sensor:
+    """
+    Esta clase esta en construccion, aún no se usa ni funciona.
+    """
+    def __init__(self,estructura):
+        self.msgs=[]
+        self.value==np.array([])
+        self.estructura=estructura
+
+
+    def call_back(self,msg):
+        self.header_process(msg)
+
+        D={}
+        D['seq']=self.seq
+
+
+    def header_process(self,msg):
+        """
+        uint32 seq
+        time stamp
+        string frame_id
+        """
+        self.seq=msg['header']['seq']
+        
+        pass
+
+
 
 class ICM_ROS(ICM_method):
     def __init__(self,config):
         ICM_method.__init__(self,config)
-        self.new_data=False
+        self.new_data=0
         self.odometria=np.array([])
         self.mediciones=np.array([])
         self.u=np.array([])
+        self.odometria_msg=[]
+        self.laser_msg=[]
+        self.u_msg=[]
     
         self.iterations_flag=False
         self.seq0=0
@@ -48,8 +81,21 @@ class ICM_ROS(ICM_method):
     def disconnect_ros(self):
         print('modulo desconectado de la red ROS')
         self.client.terminate()
+    
 
     def callback_laser(self,msg):
+        """
+        funcion de testeo
+        """
+        D={}
+        D['seq']=msg['header']['seq']
+        z=np.array([msg['ranges']],dtype=np.float)
+        z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
+        D['data']=z.T
+        self.laser_msg.append(D)
+        self.principal_callback()
+
+    def callback_laser_(self,msg):
         """
         LaserScan:angle_min, range_min, scan_time, range_max, angle_increment, angle_max,ranges,
         header, intensities.
@@ -69,9 +115,37 @@ class ICM_ROS(ICM_method):
         
         self.z=z.T
         self.laser=self.laser+1
-        print('laser: ',self.laser)
+        print('laser: ',self.laser,'sequencia: ',msg['header']['seq'])
 
     def callback_odometry(self,msg):
+        """
+        funcion de testeo
+        """
+        D={}
+        D['seq']=msg['header']['seq']
+        #msg_=copy(msg)
+        msg_=msg['pose']['pose']
+        x=msg_['position']['x']
+        y=msg_['position']['y']
+        fi_x=msg_['orientation']['x']
+        fi_y=msg_['orientation']['y']
+        fi_z=msg_['orientation']['z']
+        fi_w=msg_['orientation']['w']
+        # Sacado de la libreria de cuaterniones
+        # Fuente: https://github.com/Seba-san/pyquaternion
+        t3 = +2.0 * (fi_w * fi_z + fi_x * fi_y)
+        t4 = +1.0 - 2.0 * (fi_y **2 + fi_z **2)
+        yaw_z = math.atan2(t3, t4)
+        odo=np.array([[x,y,yaw_z]]).T
+
+        vx=msg['twist']['twist']['linear']['x']
+        vw=msg['twist']['twist']['angular']['z']
+        vel=np.array([[vx,vw]]).T
+        D['data']={'odo':odo,'u':vel}
+        self.odometria_msg.append(copy(D))
+        self.principal_callback()
+
+    def callback_odometry_(self,msg):
         """
         'twist': {'twist': {'linear': {'y':, 'x':, 'z':}, 'angular': {'y':, 'x':, 'z':}},  'covariance':, 'header': 
         'pose': {'pose': {'position': {'y':, 'x':, 'z':}, 'orientation': {'y':, 'x':, 'z':, 'w':}},'covariance':, 'child_frame_id':}
@@ -106,10 +180,10 @@ class ICM_ROS(ICM_method):
             if not self.odometria.any():
                 self.odometria=odo.T
                 #self.x0=odo.T
-                self.u=vel
+                #self.u=vel
             else:
                 self.odometria=np.hstack((self.odometria,odo.T))
-                self.u=np.hstack((self.u,vel))
+                #self.u=np.hstack((self.u,vel))
             
             # Mediciones con frecuencia mayor a la odometria.
             
@@ -122,49 +196,86 @@ class ICM_ROS(ICM_method):
                  self.mediciones=np.hstack((self.mediciones,self.z))
 
             if self.odometria.shape[1]>1:
-                self.new_data=self.new_data+1
+                #self.new_data=self.new_data+1
+                pass
             
             #self.new_data=self.new_data+1
         
         self.odome=self.odome+1
-        print('odommetria: ',self.odome)
+        print('odommetria: ',self.odome,'sequencia: ',msg_['header']['seq'])
+
+    def principal_callback(self):
+        num_odo=len(self.odometria_msg)
+        num_laser=len(self.laser_msg)
+        num_msg=min(num_odo,num_laser)
+        #if not self.odometria.any():
+        if not self.odometria.shape[0]>0:
+            num_sensor=0
+        else:
+            num_sensor=self.odometria.shape[1]
+
+        if num_msg>num_sensor:
+            for t in range(num_sensor,num_msg):
+                i=self.sort_sensors(t,self.laser_msg)
+                laser=self.laser_msg[i]['data']
+                i=self.sort_sensors(t,self.odometria_msg)
+                odometria=copy(self.odometria_msg[i]['data']['odo'])
+                u=copy(self.odometria_msg[i]['data']['u'])
+                if self.odometria.shape[0]==0:
+                    self.odometria=copy(odometria)
+                    self.u=copy(u)
+                    self.mediciones=laser
+                else:
+                    self.mediciones=np.hstack((self.mediciones,laser))
+                    self.u=np.hstack((self.u,u))
+                    self.odometria=np.hstack((self.odometria,odometria))
+
+                self.new_data=self.new_data+1
+
+    def sort_sensors(self,t,msg):
+        if t==msg[t]['seq']-1:
+            return t
+        else:
+            print('Estan llegando datos desordenados')
+            L=len(msg)
+            for i in range(L):
+                if t==msg[i]['seq']-1:
+                    return i
+
+            print('mensaje: ',msg)
+            print('t: ',t)
+            print('Error 0: no se encuentra la secuencia buscada')
+            sys.exit()
 
     def inicializar_online(self):
 
         xt=copy(self.x0)
         x=copy(self.x0)
-        x=np.array([])
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
-        self.mapa_obj=Mapa(config)
+        self.mapa_obj=Mapa(self.config)
 
         self.connect_ros()
         k=10; # Intervalo de tiempo en segundos para mostrar mensaje.
-        while not self.new_data>0:
+        while self.new_data==0:
             pass
 
         #import pdb; pdb.set_trace() # $3 sacar esto
         t=time.time()
-        self.new_data=False
         z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro la primer observacion [dist ang x y] x #obs
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
         y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
         dd=graficar2()#$5
+        self.new_data=self.new_data-1
         while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
             if self.new_data>0:
                 self.new_data=self.new_data-1
                 y,xt=self.inicializar_online_process(y,xt)
-                #xt=xt.T
                 xt=np.reshape(xt,(3,1))
-                if not x.any():
-                    x=copy(self.x0)
 
                 #import pdb; pdb.set_trace() # $3 sacar esto
                 x=np.concatenate((x,xt),axis=1)
-                #print('pose: ', x[:,-1])#$1
-                #if (x.shape[1]-self.odometria.shape[1]!=0 ):
                 if self.new_data>0:
                     print('Comparacion: ',x.shape[1]-self.odometria.shape[1])
-                    print('Secuencia: ',self.seq)
                     print('Data: ',self.new_data)
                 
                 if (time.time()-t)>k:
@@ -208,7 +319,6 @@ class ICM_ROS(ICM_method):
         """
         request['data']='start'
         """
-        #print('Service called: ', request)
         response['success']=True
         response['message']='Working...'
         self.iterations_flag=True
