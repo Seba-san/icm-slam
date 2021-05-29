@@ -57,6 +57,8 @@ class ICM_ROS(ICM_method):
         self.laser=0
         self.odome=0
 
+        self.debug=False
+
     def connect_ros(self):
         
         self.client = roslibpy.Ros(host='localhost', port=9090)
@@ -266,14 +268,21 @@ class ICM_ROS(ICM_method):
         y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
         dd=graficar2()#$5
         self.new_data=self.new_data-1
+        self.t=1
         while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
             if self.new_data>0:
+                if x.shape[1]==41: # $9 DEBUGGER
+                    self.debug=True
+                else:
+                    self.debug=False
+
                 self.new_data=self.new_data-1
                 y,xt=self.inicializar_online_process(y,xt)
                 xt=np.reshape(xt,(3,1))
 
                 #import pdb; pdb.set_trace() # $3 sacar esto
                 x=np.concatenate((x,xt),axis=1)
+                self.t=self.t+1
                 if self.new_data>0:
                     print('Comparacion: ',x.shape[1]-self.odometria.shape[1])
                     print('Data: ',self.new_data)
@@ -283,6 +292,11 @@ class ICM_ROS(ICM_method):
                     print('Tiempo restante: ',self.config.time-(time.time()-t))
                 
                 dd.data(x,y,self.odometria)#$5
+
+                if self.debug:
+                    print('x actual: ',xt)
+
+
             if self.iterations_flag:
                 print('Iterando para refinar los estados...')
                 self.mapa_viejo=y
@@ -300,9 +314,10 @@ class ICM_ROS(ICM_method):
         callback del mensaje de ROS
         """
         #import pdb; pdb.set_trace() # $3 sacar esto
-        xtc=self.g(xt,self.u[:,-2])  #actualizo cinemáticamente la pose
+        t=self.t
+        xtc=self.g(xt,self.u[:,t-1])  #actualizo cinemáticamente la pose
         #xtc=self.odometria[:,-1].reshape((3,1))
-        z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
+        z=self.filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
         if z.shape[0]==0:
             print('###0 !! Sin mediciones, abort')
             xt=xtc+0.0
@@ -311,9 +326,20 @@ class ICM_ROS(ICM_method):
         
         zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
         y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
-        self.xt=xtc
-        xt=self.minimizar_x(z[:,0:2],y[:,c].T)
+        self.xt=copy(xt)
+        xt=self.minimizar_x2(z[:,0:2],y[:,c].T)
         return y,xt
+
+    def minimizar_x2(*arg):
+        t=arg[0].t
+        if arg[0].debug:
+            print('Entradas a minimizar ',arg[1:])
+            print('Odometira usada: ',arg[0].odometria[:,t-1:t+1])
+            print('velocidad usada: ',arg[0].u[:,t-1])
+            print('xt: ',arg[0].xt)
+
+        a=arg[0].minimizar_x(*arg[1:])
+        return a
 
     def icm_iterations_service(self,request,response):
         """
@@ -369,7 +395,14 @@ class ICM_ROS(ICM_method):
         yy=yy[:,:self.mapa_obj.landmarks_actuales]
         mapa_refinado=copy(yy)
         return mapa_refinado,x
+    
+    def filtrar_z(*arg):
+        if arg[0].debug:
+            print('filtrar z:', arg[1])
 
+        a=filtrar_z(*arg[1:])
+        return a
+        
     def test_continuidad(self,x,xk):
         dt=0.1
         vel_max=0.2
@@ -383,6 +416,8 @@ class ICM_ROS(ICM_method):
         return f
 
     def g(self,xt,ut):
+        if self.debug:
+            print("en g. xt: ",xt," u: ",ut)
 
         xt=xt.reshape((3,1))
         ut=ut.reshape((2,1))
@@ -407,17 +442,19 @@ class ICM_ROS(ICM_method):
     def minimizar_x(self,medicion_actual,mapa_visto):
         self.medicion_actual=medicion_actual
         self.mapa_visto=mapa_visto
-        x0=self.g(self.xt,self.u[:,-2])
+        
+        x0=self.g(self.xt,self.u[:,self.t-1])
         x=fmin(self.fun_x,x0,xtol=0.001,disp=0)
         #import pdb; pdb.set_trace() # $3 sacar esto
         return x
 
     def fun_x(self,x):
         # revisar
+        t=self.t
         z=self.medicion_actual
         x_ant=self.xt
-        u_ant=self.u[:,-2]
-        odo=self.odometria[:,-2:]
+        u_ant=self.u[:,t-1]
+        odo=self.odometria[:,t-1:t+1]
 
         gg=x.reshape((3,1))-self.g(x_ant,u_ant)
         gg[2]=entrepi(gg[2])
