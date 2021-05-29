@@ -54,15 +54,11 @@ class ICM_ROS(ICM_method):
         self.seq0=0
         self.seq=0
 
-        self.laser=0
-        self.odome=0
-
         self.debug=False
 
     def connect_ros(self):
         
         self.client = roslibpy.Ros(host='localhost', port=9090)
-        #client.run_forever()
         self.client.run()
         if  self.client.is_connected:
             print('Conectado a la red ROS')
@@ -87,7 +83,9 @@ class ICM_ROS(ICM_method):
 
     def callback_laser(self,msg):
         """
-        funcion de testeo
+        LaserScan:angle_min, range_min, scan_time, range_max, angle_increment, angle_max,ranges,
+        header, intensities.
+        header: stamp, frame_id,seq
         """
         D={}
         D['seq']=msg['header']['seq']
@@ -97,31 +95,10 @@ class ICM_ROS(ICM_method):
         self.laser_msg.append(D)
         self.principal_callback()
 
-    def callback_laser_(self,msg):
-        """
-        LaserScan:angle_min, range_min, scan_time, range_max, angle_increment, angle_max,ranges,
-        header, intensities.
-        header: stamp, frame_id,seq
-        """
-        #import pdb; pdb.set_trace() # $3 sacar esto
-        if self.seq0==0:
-            self.seq0=msg['header']['seq']
-        
-        self.seq=msg['header']['seq']-self.seq0
-
-        #if self.seq<self.mediciones.shape[1] and self.seq0>0: # same amount of odometry with laser items
-        z=np.array([msg['ranges']],dtype=np.float)
-        #z=z.T[0:-1:4] # subsampling from 720 to 180
-        #z[np.isnan(z.astype('float'))]=self.config.rango_laser_max # clear None value
-        z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
-        
-        self.z=z.T
-        self.laser=self.laser+1
-        print('laser: ',self.laser,'sequencia: ',msg['header']['seq'])
-
     def callback_odometry(self,msg):
         """
-        funcion de testeo
+        'twist': {'twist': {'linear': {'y':, 'x':, 'z':}, 'angular': {'y':, 'x':, 'z':}},  'covariance':, 'header': 
+        'pose': {'pose': {'position': {'y':, 'x':, 'z':}, 'orientation': {'y':, 'x':, 'z':, 'w':}},'covariance':, 'child_frame_id':}
         """
         D={}
         D['seq']=msg['header']['seq']
@@ -146,65 +123,6 @@ class ICM_ROS(ICM_method):
         D['data']={'odo':odo,'u':vel}
         self.odometria_msg.append(copy(D))
         self.principal_callback()
-
-    def callback_odometry_(self,msg):
-        """
-        'twist': {'twist': {'linear': {'y':, 'x':, 'z':}, 'angular': {'y':, 'x':, 'z':}},  'covariance':, 'header': 
-        'pose': {'pose': {'position': {'y':, 'x':, 'z':}, 'orientation': {'y':, 'x':, 'z':, 'w':}},'covariance':, 'child_frame_id':}
-        """
-
-        #import pdb; pdb.set_trace() # $3 sacar esto
-        if  self.seq0>0: # same amount of  odometry and laser items
-           
-            #self.seq>self.odometria.shape[1]
-            msg_=copy(msg)
-            msg=msg['pose']['pose']
-            x=msg['position']['x']
-            y=msg['position']['y']
-            fi_x=msg['orientation']['x']
-            fi_y=msg['orientation']['y']
-            fi_z=msg['orientation']['z']
-            fi_w=msg['orientation']['w']
-            # Sacado de la libreria de cuaterniones
-            # Fuente: https://github.com/Seba-san/pyquaternion
-            t3 = +2.0 * (fi_w * fi_z + fi_x * fi_y)
-            t4 = +1.0 - 2.0 * (fi_y **2 + fi_z **2)
-            yaw_z = math.atan2(t3, t4)
-            odo=np.array([[x,y,yaw_z]])
-            #odo=np.array([[x,y,fi_w]])
-
-            vx=msg_['twist']['twist']['linear']['x']
-            vw=msg_['twist']['twist']['angular']['z']
-            vel=np.array([[vx,vw]]).T
-            #print('odo',odo)
-            #print('vel:',vel)
-
-            if not self.odometria.any():
-                self.odometria=odo.T
-                #self.x0=odo.T
-                #self.u=vel
-            else:
-                self.odometria=np.hstack((self.odometria,odo.T))
-                #self.u=np.hstack((self.u,vel))
-            
-            # Mediciones con frecuencia mayor a la odometria.
-            
-            #import pdb; pdb.set_trace() # $3 sacar esto
-            if not self.mediciones.any():
-                #if self.z.shape[0]==180:
-                if self.z.shape[0]==181:
-                    self.mediciones=self.z
-            else:
-                 self.mediciones=np.hstack((self.mediciones,self.z))
-
-            if self.odometria.shape[1]>1:
-                #self.new_data=self.new_data+1
-                pass
-            
-            #self.new_data=self.new_data+1
-        
-        self.odome=self.odome+1
-        print('odommetria: ',self.odome,'sequencia: ',msg_['header']['seq'])
 
     def principal_callback(self):
         num_odo=len(self.odometria_msg)
@@ -261,7 +179,6 @@ class ICM_ROS(ICM_method):
         while self.new_data==0:
             pass
 
-        #import pdb; pdb.set_trace() # $3 sacar esto
         t=time.time()
         z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro la primer observacion [dist ang x y] x #obs
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
@@ -271,31 +188,18 @@ class ICM_ROS(ICM_method):
         self.t=1
         while time.time()<t+self.config.time: # Solo para test, luego incorporar el servicio
             if self.new_data>0:
-                if x.shape[1]==41: # $9 DEBUGGER
-                    self.debug=True
-                else:
-                    self.debug=False
 
                 self.new_data=self.new_data-1
                 y,xt=self.inicializar_online_process(y,xt)
                 xt=np.reshape(xt,(3,1))
 
-                #import pdb; pdb.set_trace() # $3 sacar esto
                 x=np.concatenate((x,xt),axis=1)
                 self.t=self.t+1
-                if self.new_data>0:
-                    print('Comparacion: ',x.shape[1]-self.odometria.shape[1])
-                    print('Data: ',self.new_data)
-                
                 if (time.time()-t)>k:
                     k=k+10
                     print('Tiempo restante: ',self.config.time-(time.time()-t))
                 
                 dd.data(x,y,self.odometria)#$5
-
-                if self.debug:
-                    print('x actual: ',xt)
-
 
             if self.iterations_flag:
                 print('Iterando para refinar los estados...')
@@ -313,33 +217,20 @@ class ICM_ROS(ICM_method):
         """
         callback del mensaje de ROS
         """
-        #import pdb; pdb.set_trace() # $3 sacar esto
         t=self.t
         xtc=self.g(xt,self.u[:,t-1])  #actualizo cinemáticamente la pose
         #xtc=self.odometria[:,-1].reshape((3,1))
-        z=self.filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
+        z=filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
         if z.shape[0]==0:
-            print('###0 !! Sin mediciones, abort')
+            #print('###0 !! Sin mediciones, abort')
             xt=xtc+0.0
-            return y,xt.T
-            #continue   #si no hay observaciones pasar al siguiente periodo de muestreo
-        
+            return y,xt.T#si no hay observaciones pasar al siguiente periodo de muestreo
+
         zt=tras_rot_z(xtc,z)  #rota y traslada las observaciones de acuerdo a la pose actual
         y,c=self.mapa_obj.actualizar(y,y,zt[:,2:4])
         self.xt=copy(xt)
-        xt=self.minimizar_x2(z[:,0:2],y[:,c].T)
+        xt=self.minimizar_x(z[:,0:2],y[:,c].T)
         return y,xt
-
-    def minimizar_x2(*arg):
-        t=arg[0].t
-        if arg[0].debug:
-            print('Entradas a minimizar ',arg[1:])
-            print('Odometira usada: ',arg[0].odometria[:,t-1:t+1])
-            print('velocidad usada: ',arg[0].u[:,t-1])
-            print('xt: ',arg[0].xt)
-
-        a=arg[0].minimizar_x(*arg[1:])
-        return a
 
     def icm_iterations_service(self,request,response):
         """
@@ -354,7 +245,6 @@ class ICM_ROS(ICM_method):
         """
         Callback service
         """
-        
         xt=copy(self.x0)
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
         self.mapa_obj.clear_obs()
@@ -362,10 +252,9 @@ class ICM_ROS(ICM_method):
         odometria=self.odometria
         Tf=x.shape[1] 
         if z.shape[0]==0:
-            print("## Sin mediciones 2")
-            return mapa_viejo,x
-            #continue #si no hay observaciones pasar al siguiente periodo de muestreo
-        
+            #print("## Sin mediciones 2")
+            return mapa_viejo,x#si no hay observaciones pasar al siguiente periodo de muestreo
+
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
         y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
         #BUCLE TEMPORAL
@@ -375,16 +264,14 @@ class ICM_ROS(ICM_method):
             if z.shape[0]==0:
                 xt=(xt.reshape(3)+x[:,t+1])/2.0
                 x[:,t]=copy(xt)
-                print('skip por falta de obs')
+                #print('skip por falta de obs')
                 continue #si no hay observaciones pasar al siguiente periodo de muestreo
             
-            #import pdb; pdb.set_trace() # $3 sacar esto
             zt=tras_rot_z(x[:,t],z)  #rota y traslada las observaciones de acuerdo a la pose actual
             y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
             if t+1<Tf:
                 xt=self.minimizar_xn(z[:,0:2],y[:,c].T,x,t)
             else:
-                #import pdb; pdb.set_trace() # $3 sacar esto
                 self.xt=(x[:,t]+0.0).reshape((3,1))
                 xt=self.minimizar_x(z[:,0:2],y[:,c].T)
 
@@ -396,13 +283,6 @@ class ICM_ROS(ICM_method):
         mapa_refinado=copy(yy)
         return mapa_refinado,x
     
-    def filtrar_z(*arg):
-        if arg[0].debug:
-            print('filtrar z:', arg[1])
-
-        a=filtrar_z(*arg[1:])
-        return a
-        
     def test_continuidad(self,x,xk):
         dt=0.1
         vel_max=0.2
@@ -416,9 +296,6 @@ class ICM_ROS(ICM_method):
         return f
 
     def g(self,xt,ut):
-        if self.debug:
-            print("en g. xt: ",xt," u: ",ut)
-
         xt=xt.reshape((3,1))
         ut=ut.reshape((2,1))
         S=np.array([[(np.cos(xt[2]))[0],0.0],[np.sin(xt[2])[0],0.0],[0.0,1.0]])
@@ -434,8 +311,6 @@ class ICM_ROS(ICM_method):
         self.medicion_actual=medicion_actual
         self.mapa_visto=mapa_visto
         x=fmin(self.fun_xn,(self.x_ant+self.x_pos)/2.0,xtol=0.001,disp=0)
-
-        #import pdb; pdb.set_trace() # $3 sacar esto
         return x
 
 
@@ -445,11 +320,9 @@ class ICM_ROS(ICM_method):
         
         x0=self.g(self.xt,self.u[:,self.t-1])
         x=fmin(self.fun_x,x0,xtol=0.001,disp=0)
-        #import pdb; pdb.set_trace() # $3 sacar esto
         return x
 
     def fun_x(self,x):
-        # revisar
         t=self.t
         z=self.medicion_actual
         x_ant=self.xt
@@ -488,7 +361,6 @@ class ICM_ROS(ICM_method):
 
         x_ant=self.xt
         u_ant=u_act[:,0]
-        #odo=self.odometria[:,-2:]
 
         gg=x.reshape((3,1))-self.g(x_ant,u_ant)
         gg[2]=entrepi(gg[2])
@@ -499,7 +371,6 @@ class ICM_ROS(ICM_method):
         ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
         ooo[2]=entrepi(ooo[2])
         f=f+np.matmul(np.matmul(gg.T,self.config.R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
-
         return f
 
 if __name__=='__main__':
@@ -509,7 +380,7 @@ if __name__=='__main__':
     ICM=ICM_ROS(config)
     ICM.inicializar_online()
     # ========= Principal line
-    ICM.iterations_flag=True # Borrar esto
+    #ICM.iterations_flag=True # Borrar esto
     import pdb; pdb.set_trace() # $3 sacar esto
     if ICM.iterations_flag:
         mapa_viejo=copy(ICM.mapa_viejo)
