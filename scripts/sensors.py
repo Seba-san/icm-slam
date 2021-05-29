@@ -203,14 +203,20 @@ class ICM_ROS(ICM_method):
 
             if self.iterations_flag:
                 print('Iterando para refinar los estados...')
-                self.mapa_viejo=y
+                yy=self.mapa_obj.filtrar(y)
+                yy=yy[:,:self.mapa_obj.landmarks_actuales]
+                self.mapa_viejo=copy(yy)
+                #self.mapa_viejo=y
                 self.positions=x
                 break
 
-        dd.show()#$5
+        #dd.show()#$5
         self.disconnect_ros()
+        yy=self.mapa_obj.filtrar(y)
+        yy=yy[:,:self.mapa_obj.landmarks_actuales]
+        self.mapa_viejo=copy(yy)
 
-        self.mapa_viejo=y
+        #self.mapa_viejo=y
         self.positions=copy(x)
 
     def inicializar_online_process(self,y,xt):
@@ -258,7 +264,7 @@ class ICM_ROS(ICM_method):
         zt=tras_rot_z(xt,z) #rota y traslada las observaciones de acuerdo a la pose actual
         y,c=self.mapa_obj.actualizar(y,mapa_viejo,zt[:,2:4])
         #BUCLE TEMPORAL
-        dd=graficar2()#$5
+        #dd=graficar2()#$5
         for t in range(1,Tf):
             z=filtrar_z(self.mediciones[:,t],self.config)  #filtro observaciones no informativas del tiempo t: [dist ang x y] x #obs
             if z.shape[0]==0:
@@ -272,11 +278,12 @@ class ICM_ROS(ICM_method):
             if t+1<Tf:
                 xt=self.minimizar_xn(z[:,0:2],y[:,c].T,x,t)
             else:
-                self.xt=(x[:,t]+0.0).reshape((3,1))
+                self.xt=(x[:,t-1]+0.0).reshape((3,1))
+                self.t=t
                 xt=self.minimizar_x(z[:,0:2],y[:,c].T)
 
             x[:,t]=copy(xt)
-            dd.data(x,y,self.odometria,N=7)#$5
+            #dd.data(x,y,self.odometria,N=7)#$5
         #filtro ubicaciones estimadas
         yy=self.mapa_obj.filtrar(y)
         yy=yy[:,:self.mapa_obj.landmarks_actuales]
@@ -306,13 +313,46 @@ class ICM_ROS(ICM_method):
         self.x_ant=x[:,t-1].reshape((3,1))
         self.x_pos=x[:,t+1].reshape((3,1))
        
-        self.xt=x[:,t].reshape((3,1))
+        self.xt=x[:,t-1].reshape((3,1))
         self.t=t
         self.medicion_actual=medicion_actual
         self.mapa_visto=mapa_visto
         x=fmin(self.fun_xn,(self.x_ant+self.x_pos)/2.0,xtol=0.001,disp=0)
         return x
 
+    def fun_xn(self,x):
+        t=self.t
+        z=self.medicion_actual
+        x_pos=self.x_pos
+        u_act=self.u[:,t-1:t+1]
+        odo=self.odometria[:,t-1:t+2]
+        
+        #f=self.fun_x(x)
+        x=x.reshape((3,1))
+        gg=self.g(x,u_act[:,1])-x_pos
+        gg[2]=entrepi(gg[2])
+        Rotador=Rota(x[2][0])
+        ooo=np.zeros((3,1))
+        ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))-np.matmul(Rotador,x_pos[0:2]-x[0:2])
+        ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
+        ooo[2]=entrepi(ooo[2])
+        f=np.matmul(np.matmul(gg.T,self.config.R),gg)+self.config.cte_odom*np.matmul(ooo.T,ooo)
+
+        x_ant=self.xt
+        # Cual de los 2? no son lo mismo
+        u_ant=u_act[:,0]
+        #u_ant=uself.u[:,t-1]
+
+        gg=x.reshape((3,1))-self.g(x_ant,u_ant)
+        gg[2]=entrepi(gg[2])
+        hh=self.h(x,z)
+        Rotador=Rota(x_ant[2][0])
+        ooo=np.zeros((3,1))
+        ooo[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))-np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
+        ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
+        ooo[2]=entrepi(ooo[2])
+        f=f+np.matmul(np.matmul(gg.T,self.config.R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
+        return f
 
     def minimizar_x(self,medicion_actual,mapa_visto):
         self.medicion_actual=medicion_actual
@@ -340,39 +380,6 @@ class ICM_ROS(ICM_method):
         f=np.matmul(np.matmul(gg.T,self.config.R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
         return f
 
-    def fun_xn(self,x):
-        t=self.t
-        z=self.medicion_actual
-        x_pos=self.x_pos
-        u_act=self.u[:,t-1:t+1]
-        odo=self.odometria[:,t-1:t+2]
-        
-        #f=self.fun_x(x)
-        x=x.reshape((3,1))
-        gg=self.g(x,u_act[:,1])-x_pos
-        gg[2]=entrepi(gg[2])
-        Rotador=Rota(x[2][0])
-        ooo=np.zeros((3,1))
-        ooo[0:2]=np.matmul(Rota(odo[2,1]),(odo[0:2,2]-odo[0:2,1]).reshape((2,1)))-np.matmul(Rotador,x_pos[0:2]-x[0:2])
-        ooo[2]=odo[2,2]-odo[2,1]-x_pos[2]+x[2]
-        ooo[2]=entrepi(ooo[2])
-        f=np.matmul(np.matmul(gg.T,self.config.R),gg)+self.config.cte_odom*np.matmul(ooo.T,ooo)
-
-
-        x_ant=self.xt
-        u_ant=u_act[:,0]
-
-        gg=x.reshape((3,1))-self.g(x_ant,u_ant)
-        gg[2]=entrepi(gg[2])
-        hh=self.h(x,z)
-        Rotador=Rota(x_ant[2][0])
-        ooo=np.zeros((3,1))
-        ooo[0:2]=np.matmul(Rota(odo[2,0]),(odo[0:2,1]-odo[0:2,0]).reshape((2,1)))-np.matmul(Rotador,x[0:2].reshape((2,1))-x_ant[0:2])
-        ooo[2]=odo[2,1]-odo[2,0]-x[2]+x_ant[2]
-        ooo[2]=entrepi(ooo[2])
-        f=f+np.matmul(np.matmul(gg.T,self.config.R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
-        return f
-
 if __name__=='__main__':
     
     # ========= Principal line
@@ -380,8 +387,8 @@ if __name__=='__main__':
     ICM=ICM_ROS(config)
     ICM.inicializar_online()
     # ========= Principal line
-    #ICM.iterations_flag=True # Borrar esto
-    import pdb; pdb.set_trace() # $3 sacar esto
+    ICM.iterations_flag=True # Borrar esto
+    #import pdb; pdb.set_trace() # $3 sacar esto
     if ICM.iterations_flag:
         mapa_viejo=copy(ICM.mapa_viejo)
         x=copy(ICM.positions)
@@ -406,6 +413,7 @@ if __name__=='__main__':
             cambios_medios[iteracionICM]=cambio_medio
             mapa_viejo=copy(mapa_refinado)
 
+        print('Cerrar las imagenes para continuar')
         graficar(x,mapa_refinado,ICM.odometria)
         graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios)
         import pdb; pdb.set_trace() # $3 sacar esto
