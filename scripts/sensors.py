@@ -125,6 +125,10 @@ class ICM_ROS(ICM_method):
         self.principal_callback()
 
     def principal_callback(self):
+        """
+        A medida que esten todos los datos disponibles, va agregando al array
+        de los sensores los datos de forma ordenada.
+        """
         num_odo=len(self.odometria_msg)
         num_laser=len(self.laser_msg)
         num_msg=min(num_odo,num_laser)
@@ -153,6 +157,13 @@ class ICM_ROS(ICM_method):
                 self.new_data=self.new_data+1
 
     def sort_sensors(self,t,msg):
+        """
+        Busca dentro del historial de mensajes la secuencia correspondiente.
+        Para agilizar la busqueda, si el valor inicial propuesto, coincide,
+        rapidamente devuelve el indice.
+        Ver si se puede hacer con el timestamp en lugar de hacerlo con el
+        numero de secuencia.
+        """
         if t==msg[t]['seq']-1:
             return t
         else:
@@ -168,6 +179,11 @@ class ICM_ROS(ICM_method):
             sys.exit()
 
     def inicializar_online(self):
+        """
+        Rutina principal que administra las iteraciones online. El nucleo se
+        ejecuta en inicializar_online_process(), sin embargo hay muchas
+        variables que hay que inicializar.
+        """
 
         xt=copy(self.x0)
         x=copy(self.x0)
@@ -221,7 +237,7 @@ class ICM_ROS(ICM_method):
 
     def inicializar_online_process(self,y,xt):
         """
-        callback del mensaje de ROS
+        Nucleo del proceso inicializacion online.
         """
         t=self.t
         xtc=self.g(xt,self.u[:,t-1])  #actualizo cinemáticamente la pose
@@ -249,7 +265,9 @@ class ICM_ROS(ICM_method):
 
     def iterations_process_offline(self,mapa_viejo,x):
         """
-        Callback service
+        Proceso de iteraciones offline. Itera sobre toda la secuencia. Como
+        argumentos de entrada son el "mapa inicial" y los estados "x". Como
+        salida devuelve el mapa refinado y las poses refinadas.  
         """
         xt=copy(self.x0)
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
@@ -301,6 +319,11 @@ class ICM_ROS(ICM_method):
 
         f=np.e**(c**2)-1
         return f
+
+    """
+    Todas las funciones siguientes son las que puede configurar el usuario
+    inicialmente.
+    """
 
     def g(self,xt,ut):
         xt=xt.reshape((3,1))
