@@ -7,7 +7,7 @@ class Sensor:
     """
     Esta clase esta en construccion, aún no se usa ni funciona.
     """
-    def __init__(self,config='',name='name',topic='',topic_msg=''):
+    def __init__(self,config='',name='name',topic='',topic_msg='',principalCallback=''):
         self.msgs=[]
         self.value=np.array([])
         self.k0=0
@@ -15,6 +15,8 @@ class Sensor:
         self.name=name
         self.topic=topic
         self.topic_msg=topic_msg
+        self.principalCallback=principalCallback
+        self.c=0
         #self.estructura=estructura # Ver como incorporarlo
 
     def callback(self,msg):
@@ -22,10 +24,12 @@ class Sensor:
         """
         Poner codigo de lectura aquí.
         """
+        print('Hay que modificar esta funcion')
         self.msgs.append(copy(D))
         self.principal_callback()
 
     def principal_callback(self):
+        print("a este principal no...")
         pass
 
     def sort(self,k):
@@ -39,29 +43,50 @@ class Sensor:
         ts=self.config.deltat
         now=k*ts+self.t0
         # Calculo aproximado
-        k1=round(self.k0/(k-1)) # ver la convergencia de esta serie..
-
-        if abs(self.msgs[k1*k]['stamp']-now)<ts:
-            self.k0=k1*k
-            return k1*k
+        """
+        if k!=1:
+            k1=round(self.k0/(k-1)) # ver la convergencia de esta serie..
         else:
-            print('Warning 0: datos desincronizados, adaptando')
+            k1=k
+        """
+        if self.c!=0:
+            k1=int(np.ceil(self.k0*k/self.c))
+            if len(self.msgs)-1<k1:
+                k1=len(self.msgs)-1
+        else:
+            k1=k
+
+
+        if abs(self.msgs[k1]['stamp']-now)<ts:
+            self.k0=k1
+            self.c=k
+            #return k1*k
+            return self.msgs[k1]['data'],True
+
+        else:
+
             L=len(self.msgs)
             for i in range(self.k0,L):
                  if abs(self.msgs[i]['stamp']-now)<ts:
+                     print('Warning 0: datos desincronizados, adaptando...')
+                     print('buscando: ',k1)
+                     print('k1: ',k1, 'k: ',k,'k0: ',self.k0,'conv: ',self.k0/self.c)
                      print('diferencia: ',i-self.k0)
                      self.k0=i
-                     return i
+                     self.c=k
+                     #return i
+                     print('Encontrado:', i)
+                     return self.msgs[i]['data'],True
 
-            print('Sensor Error: ',self.name)
+            print('Warning 1: no se encuentra la secuencia buscada')
+            print('Sensor: ',self.name)
             #print('mensaje: ',self.msgs[k])
-            print('k: ',k)
-            print('t0: ',self.t0)
-            print('now: ',now)
-            print('Error 0: no se encuentra la secuencia buscada')
+            print('iteracion: ',k)
+            print('tiempo actual: ',now)
             #sys.exit()
-            return
-        pass
+            #self.k0=len(self.msgs)-1
+            #self.c=k
+            return None,False
 
     def header_process(self,msg):
         """
@@ -82,4 +107,8 @@ class Sensor:
         listener = roslibpy.Topic(client, self.topic,
                 self.topic_msg)
         listener.subscribe(self.callback)
+
+    def set_t0(self):
+        self.t0=self.msgs[0]['stamp']
+
 

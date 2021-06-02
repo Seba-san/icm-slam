@@ -17,78 +17,6 @@ class Lidar(Sensor):
         Sensor.__init__(self,**argd)
 
     def callback(self,msg):
-        D=self.header_process(msg)
-
-
-class Odometria(Sensor):
-    def __init__(self,**argd):
-        Sensor.__init__(self,**argd)
-
-    def callback(self,msg):
-        D=self.header_process(msg)
-
-
-class ICM_ROS(ICM_method):
-    def __init__(self,config):
-        ICM_method.__init__(self,config)
-        self.new_data=0
-        self.odometria=np.array([])
-        self.mediciones=np.array([])
-        self.u=np.array([])
-        self.odometria_msg=[]
-        self.laser_msg=[]
-        self.u_msg=[]
-    
-        self.iterations_flag=False
-        self.seq0=0
-        self.seq=0
-
-        self.debug=False
-
-        # sensors implementation
-        #"""
-        D={}
-        D['name']='lidar'
-        D['topic']=self.config.topic_laser
-        D['topic_msg']=self.config.topic_laser_msg
-        D['config']=config
-        self.lidar=Lidar(**D)
-        
-        D['name']='odometria'
-        D['topic']=self.config.topic_odometry
-        D['topic_msg']=self.config.topic_odometry_msg
-        self.odom=Odometria(**D)
-        #"""
-
-    def connect_ros(self):
-        """
-        Crea los listeners y el service
-        """
-        
-        self.client = roslibpy.Ros(host='localhost', port=9090)
-        self.client.run()
-        if  self.client.is_connected:
-            print('Conectado a la red ROS')
-        else:
-            self.disconnect_ros()
-
-        listener_laser = roslibpy.Topic(self.client, self.config.topic_laser,
-                self.config.topic_laser_msg)
-        listener_laser.subscribe(self.callback_laser)
-
-        listener_odometry = roslibpy.Topic(self.client, self.config.topic_odometry,
-                self.config.topic_odometry_msg)
-        listener_odometry.subscribe(self.callback_odometry)
-
-        service = roslibpy.Service(self.client, '/icm_slam/iterative_flag','std_srvs/SetBool')
-        service.advertise(self.icm_iterations_service)
-         
-    def disconnect_ros(self):
-        print('modulo desconectado de la red ROS')
-        self.client.terminate()
-    
-
-    def callback_laser(self,msg):
         """
         LaserScan:angle_min, range_min, scan_time, range_max, angle_increment, angle_max,ranges,
         header, intensities.
@@ -97,11 +25,11 @@ class ICM_ROS(ICM_method):
         D={}
         D['seq']=msg['header']['seq']
         D['stamp']=msg['header']['stamp']['secs']+msg['header']['stamp']['nsecs']*10**(-9)
+        D=self.header_process(msg)
         z=np.array([msg['ranges']],dtype=np.float)
         z[np.isnan(z.astype('float'))]=self.config.rango_laser_max # clear None value
         z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
         if z.shape[1]!=180:
-
             angle_min=msg['angle_min']
             angle_increment=msg['angle_increment']
             s0=int((-np.pi/2-angle_min)/angle_increment)
@@ -111,10 +39,14 @@ class ICM_ROS(ICM_method):
             
         #import pdb; pdb.set_trace() # $3 sacar esto
         D['data']=z.T
-        self.laser_msg.append(D)
-        self.principal_callback()
+        self.msgs.append(copy(D))
+        self.principalCallback()
 
-    def callback_odometry(self,msg):
+class Odometria(Sensor):
+    def __init__(self,**argd):
+        Sensor.__init__(self,**argd)
+
+    def callback(self,msg):
         """
         'twist': {'twist': {'linear': {'y':, 'x':, 'z':}, 'angular': {'y':, 'x':, 'z':}},  'covariance':, 'header': 
         'pose': {'pose': {'position': {'y':, 'x':, 'z':}, 'orientation': {'y':, 'x':, 'z':, 'w':}},'covariance':, 'child_frame_id':}
@@ -122,6 +54,7 @@ class ICM_ROS(ICM_method):
         D={}
         D['seq']=msg['header']['seq']
         D['stamp']=msg['header']['stamp']['secs']+msg['header']['stamp']['nsecs']*10**(-9)
+        D=self.header_process(msg)
 
         #msg_=copy(msg)
         msg_=msg['pose']['pose']
@@ -142,16 +75,82 @@ class ICM_ROS(ICM_method):
         vw=msg['twist']['twist']['angular']['z']
         vel=np.array([[vx,vw]]).T
         D['data']={'odo':odo,'u':vel}
-        self.odometria_msg.append(copy(D))
-        self.principal_callback()
+        self.msgs.append(copy(D))
+        #self.odometria_msg.append(copy(D))
+        self.principalCallback()
+
+
+class ICM_ROS(ICM_method):
+    def __init__(self,config):
+        ICM_method.__init__(self,config)
+        self.new_data=0
+        self.odometria=np.array([])
+        self.mediciones=np.array([])
+        self.u=np.array([])
+        self.odometria_msg=[]
+        self.laser_msg=[]
+        self.u_msg=[]
+    
+        self.iterations_flag=False
+        self.seq0=0
+        self.seq=0
+
+        self.debug=False
+
+        D={}
+        D['config']=config
+        D['principalCallback']=self.principal_callback
+
+        # sensors implementation
+        D['name']='lidar'
+        D['topic']=self.config.topic_laser
+        D['topic_msg']=self.config.topic_laser_msg
+        self.lidar=Lidar(**D)
+        
+        D['name']='odometria'
+        D['topic']=self.config.topic_odometry
+        D['topic_msg']=self.config.topic_odometry_msg
+        self.odom=Odometria(**D)
+
+
+    def connect_ros(self):
+        """
+        Crea los listeners y el service
+        """
+        
+        self.client = roslibpy.Ros(host='localhost', port=9090)
+        self.client.run()
+        if  self.client.is_connected:
+            print('Conectado a la red ROS')
+        else:
+            self.disconnect_ros()
+
+
+        self.odom.subscribe(self.client)
+        self.lidar.subscribe(self.client)
+        """
+        listener_laser = roslibpy.Topic(self.client, self.config.topic_laser,
+                self.config.topic_laser_msg)
+        listener_laser.subscribe(self.callback_laser)
+        listener_odometry = roslibpy.Topic(self.client, self.config.topic_odometry,
+                self.config.topic_odometry_msg)
+        listener_odometry.subscribe(self.callback_odometry)
+        """
+        service = roslibpy.Service(self.client, '/icm_slam/iterative_flag','std_srvs/SetBool')
+        service.advertise(self.icm_iterations_service)
+         
+    def disconnect_ros(self):
+        print('modulo desconectado de la red ROS')
+        self.client.terminate()
 
     def principal_callback(self):
         """
         A medida que esten todos los datos disponibles, va agregando al array
         de los sensores los datos de forma ordenada.
         """
-        num_odo=len(self.odometria_msg)
-        num_laser=len(self.laser_msg)
+        #print("Entrooooooooo")
+        num_odo=len(self.odom.msgs)
+        num_laser=len(self.odom.msgs)
         num_msg=min(num_odo,num_laser)
         if num_msg==0:
             return
@@ -160,19 +159,27 @@ class ICM_ROS(ICM_method):
         # de cada sensor.
         if not self.odometria.shape[0]>0:
             num_sensor=0
-            self.t0=self.laser_msg[0]['stamp'] # laser tiene data periodica.
+            self.lidar.set_t0()
+            self.odom.set_t0()
+            #self.t0=self.laser_msg[0]['stamp'] # laser tiene data periodica.
         else:
             num_sensor=self.odometria.shape[1]
         
         if num_msg>num_sensor:
             for k in range(num_sensor,num_msg):
-                i1=self.sort_sensors(k,self.laser_msg)
-                i2=self.sort_sensors(k,self.odometria_msg)
-                if i1==None or i2==None:
-                    return
-                laser=self.laser_msg[i1]['data']
-                odometria=copy(self.odometria_msg[i2]['data']['odo'])
-                u=copy(self.odometria_msg[i2]['data']['u'])
+                #i1=self.lidar.sort(k)
+                #i2=self.odom.sort(k)
+                #i1=self.sort_sensors(k,self.laser_msg)
+                #i2=self.sort_sensors(k,self.odometria_msg)
+
+                laser,state1=self.lidar.sort(k)
+                aux,state2=self.odom.sort(k)
+                if not(state1 and state2):
+                    continue
+
+                odometria=aux['odo']
+                u=aux['u']
+
                 if self.odometria.shape[0]==0:
                     self.odometria=copy(odometria)
                     self.u=copy(u)
@@ -246,13 +253,11 @@ class ICM_ROS(ICM_method):
 
                 x=np.concatenate((x,xt),axis=1)
                 self.t=self.t+1
-                if (time.time()-t)>k:
-                    k=k+10
-                    print('Tiempo restante: ',self.config.time-(time.time()-t))
+            else:
                 
                 dd.data(x,y,self.odometria)#$5
 
-            if self.iterations_flag:
+            if self.iterations_flag and self.new_data==0:
                 print('Iterando para refinar los estados...')
                 yy=self.mapa_obj.filtrar(y)
                 yy=yy[:,:self.mapa_obj.landmarks_actuales]
@@ -260,6 +265,10 @@ class ICM_ROS(ICM_method):
                 #self.mapa_viejo=y
                 self.positions=x
                 break
+            
+            if (time.time()-t)>k:
+                k=k+10
+                print('Tiempo restante: ',self.config.time-(time.time()-t))
 
         #dd.show()#$5
         self.disconnect_ros()
