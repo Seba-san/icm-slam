@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>ICM_SLAM</name>
+  <name>icm_slam</name>
   <version>0.1.0</version>
-  <description>The ICM_SLAM package</description>
+  <description>The icm_slam package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->

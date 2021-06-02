@@ -10,33 +10,22 @@ from funciones_varias import *
 from scipy.optimize import fmin
 import sys
 
-class Sensor:
-    """
-    Esta clase esta en construccion, aún no se usa ni funciona.
-    """
-    def __init__(self,estructura):
-        self.msgs=[]
-        self.value==np.array([])
-        self.estructura=estructura
+from ros_test import Sensor
+
+class Lidar(Sensor):
+    def __init__(self,**argd):
+        Sensor.__init__(self,**argd)
+
+    def callback(self,msg):
+        D=self.header_process(msg)
 
 
-    def call_back(self,msg):
-        self.header_process(msg)
+class Odometria(Sensor):
+    def __init__(self,**argd):
+        Sensor.__init__(self,**argd)
 
-        D={}
-        D['seq']=self.seq
-
-
-    def header_process(self,msg):
-        """
-        uint32 seq
-        time stamp
-        string frame_id
-        """
-        self.seq=msg['header']['seq']
-        
-        pass
-
+    def callback(self,msg):
+        D=self.header_process(msg)
 
 
 class ICM_ROS(ICM_method):
@@ -56,7 +45,25 @@ class ICM_ROS(ICM_method):
 
         self.debug=False
 
+        # sensors implementation
+        #"""
+        D={}
+        D['name']='lidar'
+        D['topic']=self.config.topic_laser
+        D['topic_msg']=self.config.topic_laser_msg
+        D['config']=config
+        self.lidar=Lidar(**D)
+        
+        D['name']='odometria'
+        D['topic']=self.config.topic_odometry
+        D['topic_msg']=self.config.topic_odometry_msg
+        self.odom=Odometria(**D)
+        #"""
+
     def connect_ros(self):
+        """
+        Crea los listeners y el service
+        """
         
         self.client = roslibpy.Ros(host='localhost', port=9090)
         self.client.run()
@@ -89,8 +96,20 @@ class ICM_ROS(ICM_method):
         """
         D={}
         D['seq']=msg['header']['seq']
+        D['stamp']=msg['header']['stamp']['secs']+msg['header']['stamp']['nsecs']*10**(-9)
         z=np.array([msg['ranges']],dtype=np.float)
+        z[np.isnan(z.astype('float'))]=self.config.rango_laser_max # clear None value
         z=np.minimum(z+self.config.radio,z*0.0+self.config.rango_laser_max)
+        if z.shape[1]!=180:
+
+            angle_min=msg['angle_min']
+            angle_increment=msg['angle_increment']
+            s0=int((-np.pi/2-angle_min)/angle_increment)
+            step=round((np.pi/180.0)/angle_increment)
+            sfin=step*180
+            z=z[:,s0:sfin:step]
+            
+        #import pdb; pdb.set_trace() # $3 sacar esto
         D['data']=z.T
         self.laser_msg.append(D)
         self.principal_callback()
@@ -102,6 +121,8 @@ class ICM_ROS(ICM_method):
         """
         D={}
         D['seq']=msg['header']['seq']
+        D['stamp']=msg['header']['stamp']['secs']+msg['header']['stamp']['nsecs']*10**(-9)
+
         #msg_=copy(msg)
         msg_=msg['pose']['pose']
         x=msg_['position']['x']
@@ -132,19 +153,26 @@ class ICM_ROS(ICM_method):
         num_odo=len(self.odometria_msg)
         num_laser=len(self.laser_msg)
         num_msg=min(num_odo,num_laser)
+        if num_msg==0:
+            return
         #if not self.odometria.any():
+        # No importa que sensor se testee, hay la misma cantidad de datos
+        # de cada sensor.
         if not self.odometria.shape[0]>0:
             num_sensor=0
+            self.t0=self.laser_msg[0]['stamp'] # laser tiene data periodica.
         else:
             num_sensor=self.odometria.shape[1]
-
+        
         if num_msg>num_sensor:
-            for t in range(num_sensor,num_msg):
-                i=self.sort_sensors(t,self.laser_msg)
-                laser=self.laser_msg[i]['data']
-                i=self.sort_sensors(t,self.odometria_msg)
-                odometria=copy(self.odometria_msg[i]['data']['odo'])
-                u=copy(self.odometria_msg[i]['data']['u'])
+            for k in range(num_sensor,num_msg):
+                i1=self.sort_sensors(k,self.laser_msg)
+                i2=self.sort_sensors(k,self.odometria_msg)
+                if i1==None or i2==None:
+                    return
+                laser=self.laser_msg[i1]['data']
+                odometria=copy(self.odometria_msg[i2]['data']['odo'])
+                u=copy(self.odometria_msg[i2]['data']['u'])
                 if self.odometria.shape[0]==0:
                     self.odometria=copy(odometria)
                     self.u=copy(u)
@@ -156,7 +184,7 @@ class ICM_ROS(ICM_method):
 
                 self.new_data=self.new_data+1
 
-    def sort_sensors(self,t,msg):
+    def sort_sensors(self,k,msg):
         """
         Busca dentro del historial de mensajes la secuencia correspondiente.
         Para agilizar la busqueda, si el valor inicial propuesto, coincide,
@@ -164,19 +192,26 @@ class ICM_ROS(ICM_method):
         Ver si se puede hacer con el timestamp en lugar de hacerlo con el
         numero de secuencia.
         """
-        if t==msg[t]['seq']-1:
-            return t
+        ts=self.config.deltat
+        now=k*ts+self.t0
+
+        if abs(msg[k]['stamp']-now)<ts:
+            return k
         else:
-            print('Estan llegando datos desordenados')
+            print('Warning 0: hay un problema con los datos')
             L=len(msg)
             for i in range(L):
-                if t==msg[i]['seq']-1:
-                    return i
+                 if abs(msg[i]['stamp']-now)<ts:
+                     print('diferencia: ',i-k)
+                     return i
 
-            print('mensaje: ',msg)
-            print('t: ',t)
+            print('mensaje: ',msg[k])
+            print('k: ',k)
+            print('t0: ',self.t0)
+            print('now: ',now)
             print('Error 0: no se encuentra la secuencia buscada')
-            sys.exit()
+            #sys.exit()
+            return
 
     def inicializar_online(self):
         """
@@ -308,18 +343,6 @@ class ICM_ROS(ICM_method):
         mapa_refinado=copy(yy)
         return mapa_refinado,x
     
-    def test_continuidad(self,x,xk):
-        dt=0.1
-        vel_max=0.2
-        vel=(x[0:2]-xk[0:2])/dt
-        vel_mag=np.linalg.norm(vel)
-        c=vel_mag/(vel_max)
-        if c>2: # evitar overflow
-            return 500000
-
-        f=np.e**(c**2)-1
-        return f
-
     """
     Todas las funciones siguientes son las que puede configurar el usuario
     inicialmente.
@@ -411,7 +434,7 @@ if __name__=='__main__':
     ICM.inicializar_online()
     # ========= Principal line
     ICM.iterations_flag=True # Borrar esto
-    #import pdb; pdb.set_trace() # $3 sacar esto
+    import pdb; pdb.set_trace() # $3 sacar esto
     if ICM.iterations_flag:
         mapa_viejo=copy(ICM.mapa_viejo)
         x=copy(ICM.positions)
