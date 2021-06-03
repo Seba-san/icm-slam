@@ -2,7 +2,7 @@ import numpy as np
 #import roslibpy # Conectarse a una red ROS
 #from ICM_SLAM import ROS,ConfigICM,Mapa, filtrar_z,tras_rot_z,Sensor
 #from ICM_SLAM import graficar,graficar_cambio, calc_cambio,graficar2
-from ICM_SLAM import *
+from ICM_SLAM_tools import *
 from copy import deepcopy as copy
 import time
 import math
@@ -288,7 +288,7 @@ if __name__=='__main__':
     ICM=ICM_ROS(config)
     ICM.inicializar_online()
     # ========= Principal line
-    #ICM.iterations_flag=True # Borrar esto
+    ICM.iterations_flag=True # Borrar esto
     #import pdb; pdb.set_trace() # $3 sacar esto
     if ICM.iterations_flag:
         mapa_viejo=copy(ICM.mapa_viejo)
