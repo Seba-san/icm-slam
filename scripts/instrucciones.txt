@@ -1,0 +1,8 @@
+Una vez que docker este funcionando, en la carpeta donde esten los archivos hacer:
+python3 -m venv env
+source env/bin/activate
+python -m pip install -U pip
+python3 -m pip install -r requisitos.txt
+
+Para probar el código luego hacer:
+python example.py

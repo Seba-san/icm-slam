@@ -1,5 +1,5 @@
 import numpy as np
-from ICM_SLAM import Sensor
+from ICM_SLAM_tools import Sensor
 from copy import deepcopy as copy
 import math
 

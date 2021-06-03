@@ -1,12 +1,8 @@
 import numpy as np
-#import roslibpy # Conectarse a una red ROS
-#from ICM_SLAM import ROS,ConfigICM,Mapa, filtrar_z,tras_rot_z,Sensor
-#from ICM_SLAM import graficar,graficar_cambio, calc_cambio,graficar2
 from ICM_SLAM_tools import *
 from copy import deepcopy as copy
 import time
 import math
-from funciones_varias import *
 
 from scipy.optimize import fmin
 import sys
