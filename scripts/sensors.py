@@ -80,9 +80,15 @@ class Odometria(Sensor):
         self.principalCallback()
 
 
-class ICM_ROS(ICM_method):
-    def __init__(self,config):
-        ICM_method.__init__(self,config)
+class ICM_ROS:
+    def __init__(self,config,x0=''):
+        #ICM_method.__init__(self,config)
+        if x0=='':
+            self.x0=np.zeros((3,1))  #guarda la pose actual (inicial en esta linea) del DDMR
+        else:
+            self.x0=x0
+
+        self.config=config
         self.new_data=0
         self.odometria=np.array([])
         self.mediciones=np.array([])
@@ -191,35 +197,6 @@ class ICM_ROS(ICM_method):
 
                 self.new_data=self.new_data+1
 
-    def sort_sensors(self,k,msg):
-        """
-        Busca dentro del historial de mensajes la secuencia correspondiente.
-        Para agilizar la busqueda, si el valor inicial propuesto, coincide,
-        rapidamente devuelve el indice.
-        Ver si se puede hacer con el timestamp en lugar de hacerlo con el
-        numero de secuencia.
-        """
-        ts=self.config.deltat
-        now=k*ts+self.t0
-
-        if abs(msg[k]['stamp']-now)<ts:
-            return k
-        else:
-            print('Warning 0: hay un problema con los datos')
-            L=len(msg)
-            for i in range(L):
-                 if abs(msg[i]['stamp']-now)<ts:
-                     print('diferencia: ',i-k)
-                     return i
-
-            print('mensaje: ',msg[k])
-            print('k: ',k)
-            print('t0: ',self.t0)
-            print('now: ',now)
-            print('Error 0: no se encuentra la secuencia buscada')
-            #sys.exit()
-            return
-
     def inicializar_online(self):
         """
         Rutina principal que administra las iteraciones online. El nucleo se
@@ -227,15 +204,17 @@ class ICM_ROS(ICM_method):
         variables que hay que inicializar.
         """
 
+        self.connect_ros()
+        while self.new_data==0:
+            pass
+        self.x0=np.array([self.odometria[:,0]]).T
+
         xt=copy(self.x0)
         x=copy(self.x0)
         y=np.zeros((2,self.config.L)) #guarda la posicion de los a lo sumo L arboles del entorno
         self.mapa_obj=Mapa(self.config)
 
-        self.connect_ros()
         k=10; # Intervalo de tiempo en segundos para mostrar mensaje.
-        while self.new_data==0:
-            pass
 
         t=time.time()
         z=filtrar_z(self.mediciones[:,-1],self.config)  #filtro la primer observacion [dist ang x y] x #obs
@@ -259,11 +238,6 @@ class ICM_ROS(ICM_method):
 
             if self.iterations_flag and self.new_data==0:
                 print('Iterando para refinar los estados...')
-                yy=self.mapa_obj.filtrar(y)
-                yy=yy[:,:self.mapa_obj.landmarks_actuales]
-                self.mapa_viejo=copy(yy)
-                #self.mapa_viejo=y
-                self.positions=x
                 break
             
             if (time.time()-t)>k:
@@ -276,7 +250,6 @@ class ICM_ROS(ICM_method):
         yy=yy[:,:self.mapa_obj.landmarks_actuales]
         self.mapa_viejo=copy(yy)
 
-        #self.mapa_viejo=y
         self.positions=copy(x)
 
     def inicializar_online_process(self,y,xt):
@@ -435,6 +408,37 @@ class ICM_ROS(ICM_method):
         f=np.matmul(np.matmul(gg.T,self.config.R),gg)+hh+self.config.cte_odom*np.matmul(ooo.T,ooo)
         return f
 
+    def h(self, xt,zt):
+        """
+        Función de potencial energético debido a las observaciones y al mapa. 
+    
+        Modelo de las observaciones
+        =============================
+        Página 8/15 del paper.
+        Modelo de las observaciones para el Laser 2D
+        Entradas:
+         - :math:`x_t=[ x_{t,x}, x_{t,y}, x_{t,\theta}]^T` 
+         - :math:`z_i=\{z_{t,i}:i=1,\cdots,n_t\}` :math:`z_{t,i}=[ z_{t,i,d}, z_{t,i,\theta} ]^T`
+         - config: Objeto que contiene todas las configuraciones
+    
+        Salida:
+         -  Potencial.
+    
+         Poner la forma de la función que esta en el paper.
+        """
+    
+        y=self.mapa_visto
+        alfa=zt[:,1]+xt[2]-np.pi/2.0
+        zc=zt[:,0]*np.cos(alfa)
+        zs=zt[:,0]*np.sin(alfa)
+        # Resta la posicion de cada punto al mapa "visto". (y no es todo el mapa,
+        # solo la parte matcheada en "actualizar mapa")
+        distancias=np.concatenate((xt[0]+zc,xt[1]+zs)).reshape((len(alfa),2),order='F')-y
+        # Calcula la norma :math:`hh^TQhh`
+        aux=np.matmul(distancias,self.config.Q)
+        potencial=np.sum(aux*distancias)
+        return potencial
+
 if __name__=='__main__':
     
     # ========= Principal line
@@ -443,7 +447,7 @@ if __name__=='__main__':
     ICM.inicializar_online()
     # ========= Principal line
     ICM.iterations_flag=True # Borrar esto
-    import pdb; pdb.set_trace() # $3 sacar esto
+    #import pdb; pdb.set_trace() # $3 sacar esto
     if ICM.iterations_flag:
         mapa_viejo=copy(ICM.mapa_viejo)
         x=copy(ICM.positions)
@@ -471,4 +475,4 @@ if __name__=='__main__':
         print('Cerrar las imagenes para continuar')
         graficar(x,mapa_refinado,ICM.odometria)
         graficar_cambio(cambios_minimos,cambios_maximos,cambios_medios)
-        import pdb; pdb.set_trace() # $3 sacar esto
+        #import pdb; pdb.set_trace() # $3 sacar esto
