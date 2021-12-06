@@ -173,4 +173,4 @@ Esquema de las funciones implementadas
 
 A modo de resumen a continuación se muestra un esquema del funcionamiento del módulo implementado
 
-![Esquema general][./doc/esquema_general.png]
+![Esquema general][./esquema_general.png]
