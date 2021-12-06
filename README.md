@@ -161,7 +161,7 @@ Asumiendo que el *PWD* está en la carpeta *src* del *workspace*. Luego lanzar e
 Funcionamiento script example.py
 ----------------------------------
 
-Este script se subscribe a los topics antes dichos y genera un servicio que habilita las iteraciones ICM. (Esto se podrá implementar en un futuro con  [ActionLib](http://wiki.ros.org/actionlib) más info en [ActionLib Detailed Description](http://wiki.ros.org/actionlib/DetailedDescription>)).
+Este script se subscribe a los topics antes dichos y genera un servicio que habilita las iteraciones ICM. (Esto se podrá implementar en un futuro con  [ActionLib](http://wiki.ros.org/actionlib) más info en [ActionLib Detailed Description](http://wiki.ros.org/actionlib/DetailedDescription)).
 
 Básicamente el comportamiento del servicio es que mediante el comando "start", comienza a iterar la cantidad de veces especificadas en el *.yaml* y luego devuelve el mapa y la trayectoria del vehículo. Para dar el comando mediante la red ROS, ejecutar la siguiente línea:
    ~~~bash
@@ -173,4 +173,4 @@ Esquema de las funciones implementadas
 
 A modo de resumen a continuación se muestra un esquema del funcionamiento del módulo implementado
 
-![Esquema general][./esquema_general.png]
+![Esquema general](./esquema_general.png)
